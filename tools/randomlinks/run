@@ -1,0 +1,7 @@
+#!/bin/bash
+
+outfile=data/links.txt
+bin/randomlinks -ruleset targeted > $outfile
+
+echo "Done. Now look in $outfile."
+

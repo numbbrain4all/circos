@@ -1,0 +1,133 @@
+<HTML>
+<HEAD>
+<TITLE>randomlinks - generate a data file with random links between chromosomes</TITLE>
+<LINK REV="made" HREF="mailto:root@gene0.cigenomics.bc.ca">
+</HEAD>
+
+<BODY>
+
+<!-- INDEX BEGIN -->
+
+<UL>
+
+	<LI><A HREF="#NAME">NAME</A>
+	<LI><A HREF="#SYNOPSIS">SYNOPSIS</A>
+	<LI><A HREF="#DESCRIPTION">DESCRIPTION</A>
+	<UL>
+
+		<LI><A HREF="#Link_Multiplicity_Rules">Link Multiplicity Rules</A>
+	</UL>
+
+	<LI><A HREF="#HISTORY">HISTORY</A>
+	<LI><A HREF="#BUGS">BUGS</A>
+	<LI><A HREF="#AUTHOR">AUTHOR</A>
+	<LI><A HREF="#CONTACT">CONTACT</A>
+</UL>
+<!-- INDEX END -->
+
+<HR>
+<P>
+<HR>
+<H1><A NAME="NAME">NAME</A></H1>
+<P>
+randomlinks - generate a data file with random links between chromosomes
+
+<P>
+<HR>
+<H1><A NAME="SYNOPSIS">SYNOPSIS</A></H1>
+<P>
+<PRE>  randomlinks -karyotype KARYOTYPE_FILE 
+              {-chr_rx REGEX } -size AVG[,SD] [-nointra] [-nointer]
+</PRE>
+<P>
+<HR>
+<H1><A NAME="DESCRIPTION">DESCRIPTION</A></H1>
+<P>
+Generate a link data file suitable for use in Circos containing random
+links between chromosomes. Chromosomes are sampled from the karyotype file
+KARYOTYPE_FILE and optionally further filtered using the regular expression
+REGEX.
+
+<P>
+The number of links between any two chromosome pairs is determined by rules
+(read below). The size of each link is determined by the average and
+standard deviation values provided by -size.
+
+<P>
+Intrachromosomal links can be avoided using -nointra. Similiarly,
+interchromosomal links can be avoided using -nointer. The -nointer option
+is much less useful.
+
+<P>
+<HR>
+<H2><A NAME="Link_Multiplicity_Rules">Link Multiplicity Rules</A></H2>
+<P>
+Given a filtered set of chromosomes (first sampled from the KARYOTYPE_FILE
+and then passed through the regular expression REGEX), the number of links
+joining any pair of chromosomes is determined by a set of rules. 
+
+<P>
+Each rule contains two regular expressions, one for each of the chromosomes
+in the pair, and these determine which pairs of chromosomes the rule will
+apply to. 
+
+<P>
+For example, if the regular expressions are ``.'' and ``.'' then all
+chromosome pairs are matched. However, if the regular expressions are ``.''
+and ``chr10'' then only pairs of chromosomes for which one contains chr10
+are affected.
+
+<P>
+In addition to the regular expression selection filter, each rule contains
+either (a) avg/sd parameters used to generate a normally distributed random
+number which is used as the number of links between the selected
+chromosomes, or (b) a multiplier which is used to multiply the number of
+links as determined by a previous rule.
+
+<P>
+Optionally, rules may contain a sampling parameter which determines how
+frequently the rule is applied.
+
+<P>
+Rules are applied in increasing order of specificity. Thus, rules that
+affect the largest number of chromosome pairs are applied first, followed
+by rules that affect fewer pairs.
+
+<P>
+For more details about the syntax of rules, see etc/randomlinks.conf.
+
+<P>
+<HR>
+<H1><A NAME="HISTORY">HISTORY</A></H1>
+<UL>
+<LI><STRONG><A NAME="item_7">7 Jul 2008 v0.2</A></STRONG>
+<P>
+Added documentation and refined rule set syntax.
+
+<LI><STRONG><A NAME="item_2">2 Jul 2008 v0.1</A></STRONG>
+<P>
+Started and versioned.
+
+</UL>
+<P>
+<HR>
+<H1><A NAME="BUGS">BUGS</A></H1>
+<P>
+<HR>
+<H1><A NAME="AUTHOR">AUTHOR</A></H1>
+<P>
+Martin Krzywinski
+
+<P>
+<HR>
+<H1><A NAME="CONTACT">CONTACT</A></H1>
+<P>
+<PRE>  Martin Krzywinski
+  Genome Sciences Centre
+  Vancouver BC Canada
+  www.bcgsc.ca
+  martink@bcgsc.ca
+</PRE>
+</BODY>
+
+</HTML>

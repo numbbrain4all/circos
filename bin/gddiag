@@ -1,0 +1,471 @@
+#!/bin/env perl
+
+=pod
+
+=head1 NAME
+
+gddiag - short GD diagnostics
+
+=head1 SYNOPSIS
+
+  # organize color swatches in 10 columns, each column swatch
+  # 20 pixels in size and color labels size 8
+  gddiag -conf tutorials/2/2/circos.conf -output_file gdtest.png [-debug] [-help] [-man]
+  
+  # test color transparency - pass in an opacity value from 0 (opaque) to 127 (transparent)
+  gddiag -conf tutorials/2/2/circos.conf -output_file gdtest.png -alpha 60
+
+=head1 DESCRIPTION
+
+This script helps diagnose any problems with gd and Perl's GD
+module. It generates a matrix of colored squares and text for each
+color defined in Circos' color configuration.
+
+Use the circos.conf configuration file as configuration for this script. For example,
+
+  gddiag -conf ../tutorials/2/2/circos.conf
+
+=head1 HISTORY
+
+=over
+
+=item * 3 Mar 2009 v0.13
+
+Added -alpha.
+
+=item * 30 Sep 2008 v0.12
+
+- added column number and width
+
+=item * 16 Apr 2008 v0.11
+
+- added labels sampling defined fonts
+
+=item * 25 Feb 2008 v0.10
+
+- started and versioned
+
+=back
+
+=head1 BUGS
+
+Please report all bugs, feature requests and general comments to Martin Krzywinski (martink@bcgsc.ca).
+
+=head1 AUTHOR
+
+Martin Krzywinski
+martink@bcgsc.ca
+mkweb.bcgsc.ca
+
+=head1 CONTACT
+
+  Martin Krzywinski
+  Genome Sciences Centre
+  Vancouver BC Canada
+  www.bcgsc.ca
+  martink@bcgsc.ca
+
+=cut
+
+################################################################
+#
+# Copyright 2004-2008 Martin Krzywinski
+#
+# This file is part of the Genome Sciences Centre Perl code base.
+#
+# This script is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This script is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this script; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+################################################################
+#
+#                 Martin Krzywinski (martink@bcgsc.ca) 2004-2008
+#
+################################################################
+
+use strict;
+use constant twoPI   => 6.283185307;
+use constant deg2rad => 0.0174532925;
+use constant rad2deg => 57.29577951;
+use constant PI      => 3.141592654;
+use constant PIover2 => 1.570796327;
+use Carp;
+use Config::General;
+use Data::Dumper;
+use File::Basename;
+use FindBin;
+use Getopt::Long;
+use IO::File;
+use Math::Round;
+use Math::VecStat qw(sum min max average);
+use Params::Validate qw(:all);
+use POSIX qw(atan ceil);
+use Pod::Usage;
+use Set::IntSpan 1.11 qw(map_set);
+use Statistics::Descriptive;
+use Storable;
+use Time::HiRes qw(gettimeofday tv_interval);
+use GD;
+
+use lib "$FindBin::RealBin";
+use lib "$FindBin::RealBin/../lib";
+use lib "$FindBin::RealBin/lib";
+
+use vars qw(%OPT %CONF);
+
+GetOptions(\%OPT,
+	   "ncol=i",
+	   "colsize=i",
+	   "labelsize=i",
+	   "verbose+",
+	   "output_file=s",
+	   "alpha=i",
+	   "configfile=s","help","man","debug+");
+
+pod2usage() if $OPT{help};
+pod2usage(-verbose=>2) if $OPT{man};
+loadconfiguration($OPT{configfile});
+populateconfiguration(); # copy command line options to config hash
+validateconfiguration(); 
+if($CONF{debug} > 1) {
+  $Data::Dumper::Pad = "debug parameters";
+  $Data::Dumper::Indent = 1;
+  $Data::Dumper::Quotekeys = 0;
+  $Data::Dumper::Terse = 1;
+  print Dumper(\%CONF);
+}
+
+my $dims;
+
+# how many colors?
+my $ncolors = keys %{$CONF{colors}};
+# how many fonts?
+my $nfonts  = keys %{$CONF{fonts}};
+# how many rows?
+my $nrow = ceil($ncolors / $CONF{ncol});
+# how wide is the image?
+my $width = $CONF{ncol} * 2*$CONF{colsize} + $CONF{colsize};
+# how tall is the image?
+my $height = (1+$nrow) * 2*$CONF{colsize} + $nfonts * 2.5*$CONF{labelsize};
+printinfo("allocating image",$width,$height);
+my $im;
+if($CONF{alpha}) {
+  $im = GD::Image->new($width,$height,1);
+} else {
+  $im = GD::Image->new($width,$height);
+}
+my $colors = allocate_colors($im,1);
+printinfo("allocated",int(keys %$colors),"colors");
+$im->fill(0,0,$colors->{white});
+
+my $swatch_idx=0;
+my $swatch_stroke = 1;
+for my $color_strings (sort { (($b->[1] eq "chr") - ($a->[1] eq "chr")) || $a->[1] cmp $b->[1] || $a->[2] <=> $b->[2] } map { [$_,($_ =~ /v*[ld]*(.+?)\d*$/g),($_ =~ /(\d+)$/g)] } keys %$colors) {
+  my ($color,$color_stem,$color_dig) = @$color_strings;
+  my $brushc = $colors->{"d$color_stem"} ? "d$color_stem" : "black";
+  my ($brush,$brushcolor) = init_brush($swatch_stroke,$swatch_stroke,$brushc);
+  my ($x,$y) = ( ($swatch_idx % $CONF{ncol})*2*$CONF{colsize},
+		 int($swatch_idx/$CONF{ncol})*2*$CONF{colsize} );
+  $im->filledRectangle($x,$y,
+		       $x+$CONF{colsize},$y+$CONF{colsize},
+		       $colors->{$color});
+  $im->setBrush($brush);
+  $im->rectangle($x,$y,
+		 $x+$CONF{colsize},$y+$CONF{colsize},
+		 gdBrushed);
+  my $text_size = $CONF{labelsize} || 0.4*$CONF{colsize};
+  $im->stringFT($colors->{black},
+		locate_file(file=>$CONF{fonts}{mono} || $CONF{fonts}{default}),
+		$text_size,
+		0,
+		$x,$y + $CONF{colsize} + $text_size + 2,
+		$color);
+  $swatch_idx++;
+}
+
+my ($x,$y) = (0,(1+$nrow)*2*$CONF{colsize});
+for my $font (keys %{$CONF{fonts}}) {
+  printinfo("drawing font",$font,"from file",locate_file(file=>$CONF{fonts}{$font}));
+  $im->stringFT($colors->{black},
+		locate_file(file=>$CONF{fonts}{$font}),
+		2*$CONF{labelsize},
+		0,
+		$x,$y,
+		$font);
+  $y += 2.5*$CONF{labelsize};
+}
+
+my $outputfile = $CONF{output_file};
+open(PNG,">$outputfile") || confess "cannot open output file $outputfile";
+binmode PNG;
+print PNG $im->png;
+close(PNG);
+printinfo("created gd diagnostic image at $outputfile");
+
+sub init_brush {
+  my ($w,$h,$brush_color) = @_;
+  $h ||= $w;
+  my $brush = new GD::Image($w,$h);
+  my $color = allocate_colors($brush);
+  if($brush_color && $color->{$brush_color}) {
+    $brush->fill(0,0,$color->{$brush_color});
+  }
+  return ($brush,$color);
+}
+
+sub allocate_colors {
+  my $image = shift;
+  my $report = shift;
+  my $colors;
+  foreach my $color (keys %{$CONF{colors}}) {
+    my $colorvalue = $CONF{colors}{$color};
+    my @rgb = split(/[, ]+/,$colorvalue);
+    if($CONF{alpha}) {
+      if($color eq "white" || $color eq "black") {
+	push @rgb,0;
+      } else {
+	push @rgb, $CONF{alpha};
+      }
+      eval {
+	$colors->{$color} = $image->colorAllocateAlpha(@rgb);
+      };
+    } else {
+      eval {
+	$colors->{$color} = $image->colorAllocate(@rgb);
+      };
+    }
+    if(@$) {
+      die "error in allocate_colors for color [$colorvalue] [$@]";
+    } else {
+      printinfo("allocate_colors",$color,@rgb,"idx",$colors->{$color}) if $report;
+    }
+  }
+  return $colors;
+}
+
+sub locate_file {
+  validate(@_,{file=>1});
+  my %params = @_;
+  my $file = $params{file};
+  if(-e $file && -r _) {
+    return $file;
+  } elsif (-e $file && ! -r _) {
+    confess "file $file exists, but cannot be read";
+  } else {
+    # look for the file elsewhere
+    for my $dir ( 
+		 "$FindBin::RealBin/",
+		 "$FindBin::RealBin/etc",
+		 "$FindBin::RealBin/../etc",
+		 "$FindBin::RealBin/../",
+		 "$FindBin::RealBin/../etc",
+		 "$FindBin::RealBin/../../etc",
+		) {
+      printwarning("trying $dir/$file");
+      if(-e "$dir/$file" && -r "$dir/$file") {
+	printwarning("$file found in $dir/$file");
+	return "$dir/$file";
+      }
+    }
+  }
+  confess "could not locate $file";
+}
+
+sub unit_strip {
+  my $value = shift;
+  my $param = shift;
+  my $unit = unit_fetch($value);
+  $value =~ s/$unit$//;
+  return $value;
+}
+
+
+sub unit_fetch {
+  my $value = shift;
+  my $param = shift;
+  confess "The parameter [$param] value of units_ok parameter is not defined. Try setting it to units_ok=bupr" unless $CONF{units_ok};
+  confess "The parameter [$param] value of units_nounit parameter is not defined. Try setting it to units_nounit=n" unless $CONF{units_nounit};
+  if($value =~ /([$CONF{units_ok}])$/) {
+    return $1;
+  } elsif ($value =~ /\d$/) {
+    return $CONF{units_nounit};
+  } else {
+    confess "The parameter [$param] value [$value] is incorrectly formatted.";
+  }
+}
+
+sub unit_validate {
+  my $value = shift;
+  my $param = shift;
+  my @unit  = @_;
+  # unit_fetch will die if $value isn't correctly formatted
+  my $value_unit = unit_fetch($value,$param);
+  if(! @unit) {
+    return $value;
+  } elsif(grep($_ eq $value_unit, @unit)) {
+    return $value;
+  } else {
+    confess "The parameter [$param] value [$value] does not have the correct unit [saw $value_unit], which should be one of ".join(",",@unit);
+  }
+}
+
+################################################################
+#
+# *** DO NOT EDIT BELOW THIS LINE ***
+#
+################################################################
+################################################################
+################################################################
+################################################################
+
+sub validateconfiguration {
+  for my $parsekey (keys %CONF) {
+    if($parsekey =~ /^(__(.+)__)$/) {
+      if(! defined $CONF{$1}) {
+	confess "ERROR - problem in configuration file - you want to use variable $1 ($2) in another parameter, but this variable is not defined";
+      }
+      my ($token,$parsevalue) = ($1,$CONF{$1});
+      for my $key (keys %CONF) {
+	$CONF{$key} =~ s/$token/$parsevalue/g;
+      }
+    }
+  }
+  confess "error - no configuration file specified - please use -conf FILE" unless $CONF{configfile};
+
+  $CONF{ncol}      ||= 15;
+  $CONF{colsize}   ||= 30;
+  $CONF{labelsize} ||= 7;
+
+  if($CONF{alpha}) {
+    die "value passed to -alpha must be 0-126" unless $CONF{alpha} >=0 && $CONF{alpha} <= 127;
+  }
+
+}
+
+sub populateconfiguration {
+  foreach my $key (keys %OPT) {
+    $CONF{$key} = $OPT{$key};
+  }
+
+  # any configuration fields of the form __XXX__ are parsed and replaced with eval(XXX). 
+  # The configuration can therefore depend on itself.
+  #
+  # flag = 10
+  # note = __2*$CONF{flag}__ # would become 2*10 = 20
+
+  repopulateconfiguration(\%CONF);
+
+  # populate some defaults
+
+  $CONF{anglestep}    ||= 1;
+  $CONF{minslicestep} ||= 5;
+}
+
+sub repopulateconfiguration {
+  my $root     = shift;
+  for my $key (keys %$root) {
+    my $value = $root->{$key};
+    if(ref($value) eq "HASH") {
+      repopulateconfiguration($value);
+    } else {
+      while($value =~ /__([^_].+?)__/g) {
+	my $source = "__" . $1 . "__";
+	my $target = eval $1;
+	$value =~ s/\Q$source\E/$target/g;
+      }
+      $root->{$key} = $value;
+    }
+  }
+}
+
+sub loadconfiguration {
+  my $file = shift;
+  my ($scriptname) = fileparse($0);
+  if(-e $file && -r _) {
+    # great the file exists
+  } elsif (-e "/home/$ENV{LOGNAME}/.$scriptname.conf" && -r _) {
+    $file = "/home/$ENV{LOGNAME}/.$scriptname.conf";
+  } elsif (-e "$FindBin::RealBin/$scriptname.conf" && -r _) {
+    $file = "$FindBin::RealBin/$scriptname.conf";
+  } elsif (-e "$FindBin::RealBin/etc/$scriptname.conf" && -r _) {
+    $file = "$FindBin::RealBin/etc/$scriptname.conf";
+  } elsif (-e "$FindBin::RealBin/../etc/$scriptname.conf" && -r _) {
+    $file = "$FindBin::RealBin/../etc/$scriptname.conf";
+  } else {
+    confess "error - could not find the configuration file [$file]";
+  }
+  $OPT{configfile} = $file;
+  my $conf = new Config::General(-ConfigFile=>$file,
+				 -AllowMultiOptions=>1,
+				 -LowerCaseNames=>1,
+				 -ConfigPath=>["$FindBin::RealBin/etc","$FindBin::RealBin/../etc","$FindBin::RealBin/..",$FindBin::RealBin,dirname($file),"$FindBin::RealBin/../".dirname($file)],
+				 -AutoTrue=>1);
+  %CONF = $conf->getall;
+}
+
+sub printmap {
+  return unless $CONF{imagemap};
+  my %params = validate(@_,{
+			    primitive => 1,
+			    subprimitive => { default => "-" },
+			    label => { default => "-" },
+			    sublabel => { default => "-" },
+			    parent => { default => "-" },
+			    xy => {type => ARRAYREF},
+			    loc => {type => HASHREF },
+			    data => {type => HASHREF, optional => 1 },
+			    params => {type => HASHREF, optional => 1 },
+			   }
+		       );
+  # format the loc positions
+  my $precision = 3;
+  for (values %{$params{loc}}) {
+    $_ = sprintf("%.${precision}f",$_) if $_ =~ /\.\d{$precision,}/;
+  }
+  my @data;
+  for my $group (qw(loc params data)) {
+    for my $param (sort keys %{$params{$group}}) {
+      next unless exists $params{$group}{$param};
+      my $value = $params{$group}{$param};
+      if($param =~ /color/) {
+	$value = $CONF{colors}{$value};
+      }
+      push @data, [$param,$value];
+    }
+  }
+  my $vertices = join(";", map { join(",",@$_) } @{$params{xy}});
+  my $supplement_info;
+  if($CONF{verbose}) {
+    $supplement_info = join(" ","vertices=$vertices");
+  }
+  printinfo("imagemap",
+	    @params{qw(primitive subprimitive parent label sublabel)},
+	    (map { join("=",@$_) } @data),
+	    $supplement_info,
+	    );
+
+}
+
+sub printdebug {
+  printinfo("debug",@_) if $CONF{debug};
+}
+
+sub printwarning {
+  printinfo("warning",@_) if $CONF{warnings};
+}
+
+sub printinfo {
+  print join(" ",@_),"\n";
+}
+
+

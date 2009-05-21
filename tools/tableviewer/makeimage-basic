@@ -1,0 +1,5 @@
+#!/bin/bash
+
+cat samples/table-basic.txt | bin/parse-table | bin/make-conf -dir data
+../../bin/circos -conf etc/circos.conf -outputfile table-basic.png
+
