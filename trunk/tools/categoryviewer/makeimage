@@ -1,0 +1,6 @@
+#!/bin/bash
+
+echo "parsing data"
+cat data/individuals.txt | bin/parse-category -conf etc/parse-category.conf > data/links.txt 2> data/karyotype.txt
+../../bin/circos -conf etc/circos.conf
+
