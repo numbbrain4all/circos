@@ -6,7 +6,7 @@
 
 
 
-                                    ____ _              v0.48
+                                    ____ _              v0.50
                                    / ___(_)_ __ ___ ___  ___
                                   | |   | | '__/ __/ _ \/ __|
                                   | |___| | | | (_| (_) \__ \
@@ -31,6 +31,10 @@ Presently all documentation is in the form of tutorials at http://mkweb.bcgsc.ca
 =head1 HISTORY
 
 =over
+
+=item * xx xx 2009 v0.50
+
+- minor bug fixes (thanks to Ken Youens-Clark @ CSHL)
 
 =item * 30 Jan 2009 v0.49
 
@@ -3779,8 +3783,8 @@ sub read_data_file {
 	       };
   my $rx = { start => qr/^\d+/,
 	     end   => qr/^\d+/,
-	     value => qw/^[\d+-.Ee,]+$/,
-	     label => qw/^.+/,
+	     value => qr/^[\d+-.Ee,]+$/,
+	     label => qr/^.+/,
 	     options => qr/=/};
   my $data;
   my $recnum;
@@ -3954,7 +3958,7 @@ sub draw_ticks {
     for my $chr (@chrs) {
       if($chr =~ /^\-(.+)/) {
 	$chrs_for_ticks{$1} = 0;
-      } elsif ($chr =~ /^+?(.+)/) {
+      } elsif ($chr =~ /^\+?(.+)/) {
 	$chrs_for_ticks{$1} ++;
       }
     }
