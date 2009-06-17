@@ -192,6 +192,7 @@ while(<$inputhandle>) {
     }
   }
 }
+
 sub validateconfiguration {
 }
 

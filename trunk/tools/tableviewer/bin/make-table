@@ -260,6 +260,7 @@ GetOptions(\%OPT,
            "negative_is_missing",
            "missing_data=s",
 	   "show_totals",
+	   "show_sizes",
 	   "seed=i",
 	   "configfile=s","help","man","debug+");
 
@@ -328,6 +329,9 @@ for my $row (@labelsrow) {
 	my $value  = get_value( @$params );
 	if($value < 0 && $CONF{negative_is_missing}) {
 	  $table->{$row}{$col}{value} = $CONF{missing_data};
+	} else {
+	  $value = sprintf($CONF{format}{data},$value) if $CONF{format}{data};
+	  $table->{$row}{$col}{value} = $value;
 	}
 	if ($value == 0 && $CONF{zero_is_missing}) {
 	  $table->{$row}{$col}{value} = $CONF{missing_data};

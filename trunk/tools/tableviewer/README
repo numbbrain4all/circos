@@ -7,6 +7,12 @@ To generate an image of sample data
 # a table with row/col order and color information
 ./makeimage-ordered-colored
 
+These batch files assume that the Circos script is in
+
+../../bin/circos 
+
+relative to this directory. 
+
 ################################################################
 
 To generate an image of random data

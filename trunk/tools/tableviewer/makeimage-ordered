@@ -1,5 +1,0 @@
-#!/bin/bash
-
-cat samples/table-ordered.txt | bin/parse-table -row_order_col -col_order_row -use_row_order_col -use_col_order_row | bin/make-conf -dir data
-../../bin/circos -conf etc/circos.conf -outputfile table-ordered.png
-
