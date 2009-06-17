@@ -29,9 +29,9 @@ The basic table format is
   B 4 5 6
   C 7 8 9
 
-The first row contains the column labels and the first column contains row labels. Value of top-left cell is unimportant. 
+The first row contains the column labels and the first column contains row labels. Value of top-left cell is unimportant (e.g. here '-') but required to keep the number of fields in each row constant.
 
-Two additional rows and columns can be added - these specify the order of rows/columns and their color.
+Two additional rows and columns can be added, which specify the order of rows/columns and their color.
 
 Order values are used to determine placement of column and row segments.
  
@@ -158,7 +158,7 @@ Martin Krzywinski
 
 ################################################################
 #
-# Copyright 2002-2008 Martin Krzywinski
+# Copyright 2002-2009 Martin Krzywinski
 #
 # This file is part of the Genome Sciences Centre Perl code base.
 #
@@ -180,7 +180,7 @@ Martin Krzywinski
 
 ################################################################
 #                           Martin Krzywinski (martink@bcgsc.ca)
-#                                                           2008
+#                                                           2009
 ################################################################
 
 use strict;
@@ -240,6 +240,9 @@ GetOptions(\%OPT,
 	   "use_scaling",
 	   "scale_factor=f",
 
+	   "segment_order=s",
+	   "segment_color_order=s",
+
 	   "percentile_sampling=f",
 
 	   "percentile_hue_start=i",
@@ -269,6 +272,15 @@ GetOptions(\%OPT,
 	   "color_remap",
 	   "color_autoremap",
 
+	   "show_parsed",
+
+	   "field_delim=s",
+	   "field_delim_collapse!",
+	   "strip_leading_space!",
+	   "blank_means_missing!",
+	   "missing_cell_value=s",
+	   "remove_cell_rx=s",
+	   
 	   "configfile=s","help","man","debug+");
 
 pod2usage() if $OPT{help};
@@ -292,7 +304,7 @@ my $inputhandle = prep_handle($CONF{file});
 
 # all the table data (row/column/cell) is stored in $table
 # all statistics (row/column/cell/label) is stored in $stat
-my ($table,$stat);
+my $table;
 
 # counters for things such as skipped lines, row index, column index
 my $counter;
@@ -319,7 +331,7 @@ while(<$inputhandle>) {
   if(! defined $ncols) {
     $ncols = $ncols_this_line;
   } elsif ($ncols_this_line != $ncols) {
-    report_error("This line has a different number of columns ($ncols_this_line) than the previous line which had ($ncols) columns. Please make sure that every line has the same number of fields. Empty cells should appear in the input file as adjacent delimiters (e.g. 2<tab><tab>3). Also verify that you are not missing cell values to the left of row header fields.");
+    report_error("This line has a different number of columns ($ncols_this_line) than the previous line which had ($ncols) columns. Please make sure that every line has the same number of fields. Empty cells should appear in the input file as either (A) string defined by missing_cell_value (e.g. -), or (B) adjacent delimiters (e.g. 2<tab><tab>3) with -blank_means_missing=yes and field_delim_collapse=no. For an example of how missing data is encoded, see samples/parse-example-N.txt N=2,3");
   }
 
   # parse column information
@@ -389,7 +401,12 @@ while(<$inputhandle>) {
       last if $col_idx >= $CONF{max_col_num};
       my $name    = parse_label($tok[$i]);
       printdebug("labelparse",$col_idx,$tok[$i],$name);
-      report_error("Duplicate column name ($name) found. Please makes sure that all column names in the header are different.") if $seen->{col_name}{$name}++;
+      if($name eq "") {
+	report_error("Blank column name found. This is likely due to multiple adjacent whitespaces in your input and field_delim_collapse=no. If your input uses whitespace and there is more than one whitespace between adjacent fields, make sure field_delim_collapse=yes. Please see sample/parse-example-4.txt");
+      }
+      if($seen->{col_name}{$name}++) {
+	report_error("Duplicate column name ($name) found. Please makes sure that all column names in the header are different.") 
+      }
       @{$table->{col}{list}[$col_idx]}{qw(name idx j)} = ($name,$col_idx,$i);
       $segment_order->{$name} = $table->{col}{list}[$col_idx]{order};
       $label_size->{$name}  = $table->{col}{list}[$col_idx]{size};
@@ -405,7 +422,7 @@ while(<$inputhandle>) {
 
   my $row_idx  = $table->{row}{list} ? @{$table->{row}{list}} : 0;
   last LINE if $row_idx >= $CONF{max_row_num};
- 
+
   my $col_idx = 0;
   my $row_data;
   # process the row order, if this column exists
@@ -459,7 +476,7 @@ while(<$inputhandle>) {
     my $j = $col_data->{j}; 
     # this is the cell value at this column position 
     my $cell_value = $tok[$j];
-    my $cell_value_clean = clean_value($cell_value);
+    my $cell_value_clean = clean_value($cell_value,$row_data->{name},$col_data->{name});
     printdebug("cleaned value",$cell_value,$cell_value_clean);
     # if the cell value is blank or 0, it will be populated with the missing_cell_value
     # otherwise, apply the data_mult multiplier, if it is defined
@@ -506,12 +523,18 @@ for my $col (@{$table->{col}{list}}) {
   $table->{col}{label}{$col->{name}} = $col;
 }
 
-#printdumper($table);exit;
+#print Dumper($table);
+
+if($CONF{show_parsed}) {
+  report_parse_table($table);
+  exit;
+}
 
 ################################################################
 #
 # Compile cells statistics based on cleaned (but unfiltered) values
 
+my $stat;
 $stat->{cell}{raw} = Statistics::Descriptive::Full->new();
 $stat->{cell}{raw}->add_data(map { $_->{value} } grep(! $_->{missing}, @{$table->{cell_list}}));
 printdebug("raw cell stats","min",$stat->{cell}{raw}->min);
@@ -536,10 +559,10 @@ for my $cell (grep(! $_->{missing}, @{$table->{cell_list}})) {
   $reject = 1 if defined $CONF{cell_max_percentile} && $cell->{value} > $stat->{cell}{raw}->percentile($CONF{cell_max_percentile});
   if($reject) {
     printdebug("filtering out cell ($cell->{row}{name},$cell->{col}{name})=$cell->{value}");
-    if(! $CONF{cutoff_cell_handling} || $CONF{cutoff_cell_handling} eq "hide") {
+    if(! defined $CONF{cutoff_cell_handling} || $CONF{cutoff_cell_handling} eq "hide") {
       $cell->{hide} = 1;
     } elsif ($CONF{cutoff_cell_handling} eq "remove") {
-      $cell->{value} = $CONF{missing_cell_value};
+      $cell->{value}   = $CONF{missing_cell_value};
       $cell->{missing} = 1;
     } else {
       report_error("The cutoff_cell_handling value ($CONF{cutoff_cell_handling}) does not correspond to a valid choice (hide,remove)");
@@ -620,16 +643,16 @@ for my $type (qw(row col)) {
 for my $cell (@{$table->{cell_list}}) {
   printinfo("table report cell",
 	    join(" ",
-		 $cell->{col}{idx},
-		 $cell->{col}{name},
 		 $cell->{row}{idx},
 		 $cell->{row}{name},
+		 $cell->{col}{idx},
+		 $cell->{col}{name},
 		 "raw",
 		 $cell->{raw_value},
-		 "cleaned/remapped".($value_type eq "value" ? "*" : ""),
-		 $cell->{value},
-		 "scaled".($value_type eq "scaled_value" ? "*" : ""),
-		 $cell->{scaled_value},
+		 "cleaned/remapped",
+		 $cell->{value} . ($value_type eq "value" ? "*" : ""),
+		 "scaled",
+		 $cell->{scaled_value} . ($value_type eq "scaled_value" ? "*" : ""),
 		 "missing?",
 		 $cell->{missing} || 0,
 		 "hidden?",
@@ -660,6 +683,7 @@ for my $cell (grep(! $_->{missing}, @{$table->{cell_list}})) {
 	$stat->{label}{$name}->add_data( $cell->{$value_type} );
 	$stat->{$type}{$name}->add_data( $cell->{$value_type} );
       } elsif ($type eq "col") {
+	# TODO is this working???
 	if($CONF{ribbon_variable_intra_collapse} && $row eq $col) {
 	  # do not add to the size of the segment if we're collapsing
 	  # intrasegment ribbons
@@ -681,17 +705,17 @@ for my $cell (grep(! $_->{missing}, @{$table->{cell_list}})) {
 
 for my $stattype (qw(row col label)) {
   for my $name (sort keys %{$stat->{$stattype}}) {
-    printdebug("row/col/label stat",$stattype,$name,
-	       "sum",
-	       $stat->{$stattype}{$name}->sum,
-	       "n",
-	       $stat->{$stattype}{$name}->count,
-	       "min",
-	       $stat->{$stattype}{$name}->min,
-	       "max",
-	       $stat->{$stattype}{$name}->max,
-	       "avg",
-	       $stat->{$stattype}{$name}->mean);
+    printinfo("row/col/label stat",$stattype,$name,
+	      "sum",
+	      $stat->{$stattype}{$name}->sum,
+	      "n",
+	      $stat->{$stattype}{$name}->count,
+	      "min",
+	      $stat->{$stattype}{$name}->min,
+	      "max",
+	      $stat->{$stattype}{$name}->max,
+	      "avg",
+	      $stat->{$stattype}{$name}->mean);
   }
 }
 
@@ -826,19 +850,19 @@ for my $i ( 0 .. @labels-1) {
 
 ################################################################
 # determine the mapping between row/col names and the names
-# of the ideograms in Circos files. If the chr_prefix is set, then
-# the ideograms are named chr_prefix + IDX where IDX=0,1,2,3... in the
+# of the ideograms in Circos files. If the segment_prefix is set, then
+# the ideograms are named segment_prefix + IDX where IDX=0,1,2,3... in the
 # order of segments in the image. If the chr-Prefix is not set, then
 # the ideograms are named after the label.
 
-my $label2chr;
+my $label2seg;
 for my $label_idx (0..@labels-1) {
-  if($CONF{chr_prefix}) {
-    $label2chr->{ $labels[$label_idx] } = sprintf("%s%d",$CONF{chr_prefix},$label_idx);
+  if($CONF{segment_prefix}) {
+    $label2seg->{ $labels[$label_idx] } = sprintf("%s%d",$CONF{segment_prefix},$label_idx);
   } else {
-    $label2chr->{ $labels[$label_idx] } = $labels[$label_idx];
+    $label2seg->{ $labels[$label_idx] } = $labels[$label_idx];
   }
-  printinfo("label2chr",$label_idx,$labels[$label_idx],$label2chr->{$labels[$label_idx]});
+  printinfo("label2seg",$label_idx,$labels[$label_idx],$label2seg->{$labels[$label_idx]});
 }
 
 ################################################################ 
@@ -869,11 +893,16 @@ for my $i (0..@label_for_color-1) {
   my ($h,$s,$v);
   if($CONF{segment_colors}{interpolate_type} =~ /size/) {
     my $total_label_size = sum ( map { normvalue($stat->{label}{$_}->sum,$_) } @label_for_color );
+    $total_label_size -= normvalue($stat->{label}{ $label_for_color[0] }->sum, $label_for_color[0])/2;
+    $total_label_size -= normvalue($stat->{label}{ $label_for_color[-1] }->sum, $label_for_color[-1])/2;
+    if($cumul_size) {
+      $cumul_size += normvalue($stat->{label}{$label}->sum,$label)/2;
+    }
     my $x = $cumul_size / $total_label_size;
     $h = map_value($x,0,1,$CONF{segment_colors}{h0},$CONF{segment_colors}{h1});
     $s = map_value($x,0,1,$CONF{segment_colors}{s0},$CONF{segment_colors}{s1});
     $v = map_value($x,0,1,$CONF{segment_colors}{v0},$CONF{segment_colors}{v1});
-    $cumul_size += normvalue($stat->{label}{$label}->sum,$label);
+    $cumul_size += normvalue($stat->{label}{$label}->sum,$label)/2;
   } else {
     $h = map_value($i,0,@label_for_color-1,$CONF{segment_colors}{h0},$CONF{segment_colors}{h1});
     $s = map_value($i,0,@label_for_color-1,$CONF{segment_colors}{s0},$CONF{segment_colors}{s1});
@@ -891,7 +920,7 @@ for my $i (0..@label_for_color-1) {
 # create new color definitions
 
 for my $label (keys %$label_color) {
-  printinfo(sprintf("colordef %s%s %s",lc $CONF{color_prefix},lc $label2chr->{$label},$label_color->{$label}));
+  printinfo(sprintf("colordef %s%s %s",lc $CONF{color_prefix},lc $label2seg->{$label},$label_color->{$label}));
 }
 
 ################################################################
@@ -915,14 +944,14 @@ for my $type (qw(row col)) {
   for my $label ( keys %values ) {
     my $cumul_pos = 0;
     for my $alabel ( sort {$values{$label}{$b} <=> $values{$label}{$a}} keys %{$values{$label}} ) {
-      printinfo(sprintf("%s %s %s%d %d %d fill_color=%s%s%d",
+      printinfo(sprintf("%s %s %s%d %d %d fill_color=%s%s%s",
 			"highlight",
 			$type,
-			$CONF{chr_prefix},
-			$label2chr->{ $label },
+			$CONF{segment_prefix},
+			$label2seg->{ $label },
 			$cumul_pos,
 			$cumul_pos + $values{$label}{$alabel},
-			lc $CONF{color_prefix},$CONF{chr_prefix},$label2chr->{$alabel}));
+			lc $CONF{color_prefix},$CONF{segment_prefix},$label2seg->{$alabel}));
       $cumul_pos += $values{$label}{$alabel};
     }
   }
@@ -946,11 +975,11 @@ for my $label (@labels) {
     printinfo(sprintf("%s %s %s%d %d %d fill_color=%s%s%d",
 		      "highlight",
 		      "all",
-		      $CONF{chr_prefix},
-		      $label2chr->{ $label },
+		      $CONF{segment_prefix},
+		      $label2seg->{ $label },
 		      $cumul_pos,
 		      $cumul_pos + $values{$alabel},
-		      lc $CONF{color_prefix},$CONF{chr_prefix},$label2chr->{$alabel}));
+		      lc $CONF{color_prefix},$CONF{segment_prefix},$label2seg->{$alabel}));
     $cumul_pos += $values{$alabel};
   }
 }
@@ -966,11 +995,11 @@ for my $label ( @labels ) {
   next unless $size;
   printinfo("karyotype",
 	    sprintf("chr - %s %s 0 %d %s%s",
-		    $label2chr->{$label},
-		    $label2chr->{$label},
+		    $label2seg->{$label},
+		    $label2seg->{$label},
 		    $size,
 		    lc $CONF{color_prefix},
-		    $label2chr->{$label}));
+		    lc $label2seg->{$label}));
   (my $text_label = $label) =~ s/ /:/g;
   $text_label = uc $text_label if $CONF{segment_label_uppercase};
   if($CONF{segment_label_size_range}) {
@@ -986,14 +1015,14 @@ for my $label ( @labels ) {
     }
     printinfo("segmentlabel",
 	      sprintf("%s %s %s %s label_size=%dp",
-		      $label2chr->{$label},
+		      $label2seg->{$label},
 		      $size/2,
 		      $size/2,
 		      $text_label,$label_size));
   } else {
     printinfo("segmentlabel",
 	      sprintf("%s %s %s %s",
-		      $label2chr->{$label},
+		      $label2seg->{$label},
 		      $size/2,
 		      $size/2,
 		      $text_label));
@@ -1015,11 +1044,11 @@ if($CONF{use_segment_normalization} && $CONF{segment_normalization_scheme} eq "v
     my $scale = $norm_size / $orig_size;
     printinfo("scaling",
 	      sprintf("%s pre %d norm %d scale %.3f",
-		      $label2chr->{$label},
+		      $label2seg->{$label},
 		      $orig_size,
 		      $norm_size,
 		      $scale));
-    push @chromosomes_scale, sprintf("%s:%.4f",$label2chr->{$label},$scale);
+    push @chromosomes_scale, sprintf("%s:%.4f",$label2seg->{$label},$scale);
   }
   printinfo("chromosomes_scale =",join(",",@chromosomes_scale));
 }
@@ -1035,8 +1064,16 @@ my $assigned;
 my @loop1 = $CONF{ribbon_variable} ? split(/,/,$CONF{placement_order}) : @labels;
 my @loop2 = $CONF{ribbon_variable} ? @labels : split(/,/,$CONF{placement_order});
 
+# ribbon-variable = yes
+# loop1 = row | col
+# loop2 = label
+# ribbon-variable = no
+# loop1 = label
+# loop2 = row | col
+
 for my $loop1 (@loop1) {
   for my $loop2 (@loop2) {
+    printinfo("loop",$loop1,$loop2);
     my ($label,$type) = $CONF{ribbon_variable} ? ($loop2,$loop1) : ($loop1,$loop2);
     # $atype is the corresponding table object for the given $type
     # $type=row $atype=col
@@ -1111,7 +1148,6 @@ for my $loop1 (@loop1) {
 	  $assigned->{$row}{$col}++;
 	}
       }
-
       printdebug("cellinfo",$type,$row,$col,
 		 "row",defor($cell->{row_start},"-"),defor($cell->{row_end},"-"),
 		 "col",defor($cell->{col_start},"-"),defor($cell->{col_end},"-"));
@@ -1157,10 +1193,10 @@ for my $cell ( grep(! $_->{missing} && ! $_->{hide}, @{$table->{cell_list}}) ) {
     } elsif ($CONF{linkcolor}{color_source} =~ /small/) {
       $label = $vrc <= $vcr ? $row : $col;
       $value_for_percentile = $vrc;
-    } elsif ($CONF{linkcolor}{color_source} eq "row") {
+    } elsif ($CONF{linkcolor}{color_source} =~ /row/) {
       $label = $row;
       $value_for_percentile = $vrc;
-    } elsif ($CONF{linkcolor}{color_source} eq "col") {
+    } elsif ($CONF{linkcolor}{color_source} =~ /col/) {
       $label = $col;
       $value_for_percentile = $vcr;
     } else {
@@ -1177,11 +1213,14 @@ for my $cell ( grep(! $_->{missing} && ! $_->{hide}, @{$table->{cell_list}}) ) {
     } else {
       die "Cannot understand percentile_source parameter [$CONF{linkcolor}{percentile_source}] when ribbon_variable=yes";
     }
-    $param{color} = lc sprintf("%s%s",$CONF{color_prefix},$label2chr->{$label});
+    $param{color} = lc sprintf("%s%s",$CONF{color_prefix},$label2seg->{$label});
   } else {
     $value_for_percentile = normvalue($table->{cell}{$row}{$col}{$value_type},$row);
-    $param{color}  = lc sprintf("%s%s",$CONF{color_prefix},$label2chr->{$cell->{ $CONF{linkcolor}{color_source} }{name}}),
+    if($CONF{linkcolor}{color_source}) {
+      $param{color}  = lc sprintf("%s%s",$CONF{color_prefix},$label2seg->{$cell->{ $CONF{linkcolor}{color_source} }{name}}),
+    }
   }
+
   $param{color} .= sprintf("_a%d",$CONF{linkcolor}{color_transparency}) if $CONF{linkcolor}{color_transparency};
 
   if($CONF{linkcolor}{color_remap}) {
@@ -1212,7 +1251,17 @@ for my $cell ( grep(! $_->{missing} && ! $_->{hide}, @{$table->{cell_list}}) ) {
 	if ($cell->{$value_type} <= $value) {
 	  for my $param (sort keys %{$CONF{linkcolor}{value}{$value}}) {
 	    my $value = $CONF{linkcolor}{value}{$value}{$param};
-	    $param{$param} = $value;
+	    if($param =~ /transparency/) {
+	      if($value == 0) {
+		$param{color} =~ s/_a\d+//;
+	      } elsif ($param{color} =~ /_a\d+/) {
+		  $param{color} =~ s/_a\d+/_a$value/;
+	      } else {
+		$param{color} .= sprintf("_a%d",$value);
+	      }
+	    } else {
+	      $param{$param} = $value;
+	    }
 	  }
 	  last;
 	}
@@ -1242,7 +1291,7 @@ for my $cell ( grep(! $_->{missing} && ! $_->{hide}, @{$table->{cell_list}}) ) {
   printinfo("link",
 	    sprintf("cell_%04d %s %d %d %s",
 		    $linkid,
-		    $label2chr->{ $cell->{row}{name} },
+		    $label2seg->{ $cell->{row}{name} },
 		    $cell->{row_start},
 		    $cell->{row_end},
 		    join(",", map {sprintf("%s=%s",$_,$param{$_})} keys %param)
@@ -1251,7 +1300,7 @@ for my $cell ( grep(! $_->{missing} && ! $_->{hide}, @{$table->{cell_list}}) ) {
   printinfo("link",
 	    sprintf("cell_%04d %s %d %d %s",
 		    $linkid,
-		    $label2chr->{ $cell->{col}{name} },
+		    $label2seg->{ $cell->{col}{name} },
 		    $cell->{col_start},
 		    $cell->{col_end},
 		    join(",", map {sprintf("%s=%s",$_,$param{$_})} keys %param)
@@ -1264,6 +1313,24 @@ report_error("could not parse any cell values to draw") if ! $linkid;
 ################################################################
 ################################################################
 ################################################################
+
+sub report_parse_table {
+  my $table = shift;
+  my @lines;
+  push @lines,["data",map {$_->{name}} @{$table->{col}{list}}];
+  for my $row (@{$table->{row}{list}}) {
+    push @lines, [$row->{name}];
+    for my $col (@{$table->{col}{list}}) {
+      push @{$lines[-1]},$table->{cell}{$row->{name}}{$col->{name}}{raw_value};
+    }
+  }
+  my @strings = 
+  my $max_length = max (map {length($_)} (map {@$_} @lines) );
+  for my $line (@lines) {
+    printf("%${max_length}s "x@lines . "\n",@$line);
+  }
+  
+}
 
 sub remap_for_percentile {
   my $value = shift;
@@ -1461,6 +1528,12 @@ sub report_error {
     print STDERR $line,"\n";
   }
   die if $CONF{strict_sanity};
+}
+
+sub report_warning {
+  my $msg = shift;
+  my $line = shift;
+  print STDERR "WARNING $msg\n";
 }
 
 ################################################################

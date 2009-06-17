@@ -7,8 +7,10 @@ use strict;
 sub clean_and_split_line {
   my $line = shift;
   chomp $line;
+  return () if $line =~ /^\s*$/;
   $line =~ s/^\s*// if $CONF{strip_leading_space};
-  return undef unless $line;
+  return () unless $line;
+  #printinfo(join(":",split_line($line)));
   my @tok = map {clean_field($_)} split_line($line);
   return @tok;
 }
@@ -16,15 +18,25 @@ sub clean_and_split_line {
 sub split_line {
   my $str = shift;
   if($CONF{field_delim}) {
-    return split(/[$CONF{field_delim}]/,$str);
+    if($CONF{field_delim_collapse}) {
+      return split(/$CONF{field_delim}+/,$str);
+    } else {
+      return split(/$CONF{field_delim}/,$str);
+    }
   } else {
-    return split(/[\s\t]/,$str);
+    if($CONF{field_delim_collapse}) {
+      return split(/[\s\t]/,$str);
+    } else {
+      return split(/[\s\t]+/,$str);
+    }
   }
 }
 
 sub clean_field {
   my $str = shift;
-  $str =~ s/[\Q$CONF{remove_cell_rx}\E]//g;
+  if($CONF{remove_cell_rx}) {
+    $str =~ s/[\Q$CONF{remove_cell_rx}\E]//g;
+  }
   return $str;
 }
 
@@ -63,9 +75,16 @@ sub shorten_text {
 }
 
 sub clean_value {
-  my $val = shift;
+  my ($val,$row_name,$col_name) = @_;
   (my $new_val = $val) =~ s/[^\w.\-+$CONF{missing_cell_value}]*//g;
-  report_error("Cell value ($val) is malformed.") unless $new_val ne "";
+  if($val eq "") {
+    if($CONF{blank_means_missing}) {
+      report_warning("Interpreting blank value at row,col $row_name,$col_name as missing data");
+      $new_val = $CONF{missing_cell_value};
+    } else {
+      report_error("Cell value at row,col $row_name,$col_name is blank. If you want this to represent missing data, set blank_means_missing=yes");
+    }
+  }
   if($CONF{use_cell_remap}) {
     my $expr = $CONF{cell_remap_formula};
     $expr =~ s/X/$new_val/g;
