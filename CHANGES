@@ -212,4 +212,16 @@ Finalized connector track.
 
 Added band_transparency to allow drawing semi-transparent cytogenetic bands on top of ideograms.
 
+30 Jan 2009 v0.49
 
+Optimized calls to Math::Bezier to reduce time taken to draw links.
+
+Inverted link coordinates (i.e. end<start) can be tested with _REV1_ and _REV2_ in rules.
+
+Fixed error that caused ends of ribbons to be drawn as straight lines.
+
+Fixed error that caused highlights to be drawn on top of the grid in certain cases.
+
+v0.50
+
+Added file_delim to allow any field delimiter to be used in input files (e.g. a tab).
