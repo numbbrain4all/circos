@@ -341,6 +341,7 @@ GetOptions(\%OPT,
 	   "tagname",
 	   "png",
 	   "svg",
+	   "24bit",
 	   "configfile=s","help","man","debug+");
 
 pod2usage() if $OPT{help};
@@ -683,7 +684,7 @@ if(locate_file(file=>$CONF{image}{background},return_undef=>1)) {
   $im = GD::Image->new(locate_file(file=>$CONF{image}{background}));
 } else {
   eval {
-    $im = GD::Image->new(@{$dims->{image}}{qw(height width)},$CONF{image}{"24bit"});
+    $im = GD::Image->new(@{$dims->{image}}{qw(height width)},$CONF{"24bit"} || $CONF{image}{"24bit"});
   };
   if($@) {
     $im = GD::Image->new(@{$dims->{image}}{qw(height width)});

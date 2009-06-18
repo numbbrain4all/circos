@@ -1,21 +1,12 @@
 package Circos;
 
+our $VERSION = '0.50';
+
 =pod
 
 =head1 NAME
 
-Circos - Circular data visualizations for comparison of genomes and
-  other things
-
-=head1 VERSION
-
-Version 0.50.
-
-=cut
-
-our $VERSION = '0.50';
-
-=pod 
+Circos - Circular data visualizations for comparison of genomes, among other things
 
 =head1 SYNOPSIS
 
@@ -24,7 +15,6 @@ Quick summary of what the module does.
 Perhaps a little code snippet.
 
     use Circos;
-
     my $circos = Circos->new( %OPTIONS );
 
 =head1 DESCRIPTION
@@ -41,6 +31,10 @@ limited to genomics.
 Presently all documentation is in the form of tutorials at
 http://mkweb.bcgsc.ca/circos.
 
+=head1 VERSION
+
+Version 0.50.
+
 =head1 FUNCTIONS/METHODS
 
 =cut
@@ -48,7 +42,7 @@ http://mkweb.bcgsc.ca/circos.
 # -------------------------------------------------------------------
 
 use strict;
-use warnings;
+#use warnings;
 use Carp qw( confess croak );
 use Config::General;
 use Data::Dumper;
@@ -108,12 +102,13 @@ sub run {
   Circos->run( configfile => $file  );
   Circos->run( config     => \%CONF );
 
-Runs the Circos code.  You must pass either the "configfile" location
+Runs the Circos code. You must pass either the "configfile" location
 or a hashref of the configuration options.
 
 =cut
 
   my $package = shift;
+
   %OPT = ref $_[0] eq 'HASH' ? %{ $_[0] } : @_;
   
   if ( $OPT{'configfile'} ) {
@@ -537,10 +532,14 @@ or a hashref of the configuration options.
   }
 
   $COLORS = allocate_colors( $IM, 1 ) if $PNG_MAKE;
+
   $IM->transparent( $COLORS->{transparent} ) if $PNG_MAKE;
   printdebug( "allocated", int( keys %$COLORS ), "colors" );
   $IM->fill( 0, 0, $COLORS->{ $CONF{image}{background} } )
     if $bgfill && $PNG_MAKE;
+
+
+
 
   $GCIRCUM = $Gsize;
   for my $i ( 0 .. @IDEOGRAMS - 1 ) {
@@ -1018,9 +1017,7 @@ or a hashref of the configuration options.
 	  next LINK
 	    if !$KARYOTYPE->{ $point->{data}{chr} }{chr}{display};
 	  next LINK
-	    unless $KARYOTYPE->{ $point->{data}{chr} }{chr}
-	      {
-		display_region}{accept} ge $point->{data}{set};
+	    unless $KARYOTYPE->{ $point->{data}{chr} }{chr}{display_region}{accept} ge $point->{data}{set};
 	}
 
 	my $linkradius =
@@ -1662,16 +1659,10 @@ or a hashref of the configuration options.
 	  # must be within displayed region
 	  #
 	  next
-	    unless $KARYOTYPE->{ $data_point->{chr} }{chr}
-	      {
-		display_region}{accept}
-		  ->member( $data_point->{start} );
+	    unless $KARYOTYPE->{ $data_point->{chr} }{chr}{display_region}{accept}->member( $data_point->{start} );
 
 	  next
-	    unless $KARYOTYPE->{ $data_point->{chr} }{chr}
-	      {
-		display_region}{accept}
-		  ->member( $data_point->{end} );
+	    unless $KARYOTYPE->{ $data_point->{chr} }{chr}{display_region}{accept}->member( $data_point->{end} );
 
 	  push @values, $datum->{data}[0]{data}{value};
 	}
@@ -1884,11 +1875,9 @@ or a hashref of the configuration options.
 	  (
 	   substr( $b->{data}[0]{param}{label_size}, 0, -1 ) <=>
 	   substr( $a->{data}[0]{param}{label_size}, 0, -1 ) )
-	    || ( $a->{data}[0]{data}{angle} <=> $b->{data}[0]{data}
-		 {
-		   angle} )
+	    || ( $a->{data}[0]{data}{angle} <=> $b->{data}[0]{data}{angle} )
 	  } @{ $dataset->{data} };
-
+	
 	do {
 	  $label_placed = 0;
 
@@ -2608,9 +2597,7 @@ or a hashref of the configuration options.
 			default => sub {
 			  ( $b->{data}[0]{param}{z} <=> $a->{data}[0]{param}{z} )
 			    || ( $a->{data}[0]{data}{chr} cmp $b->{data}[0]{data}{chr}
-				 || $a->{data}[0]{data}{start} <=> $b->{data}[0]{data}
-				 {
-				   start} );
+				 || $a->{data}[0]{data}{start} <=> $b->{data}[0]{data}{start} );
 			},
 			heatmap => sub {
 			  $b->{data}[0]{data}{end} -
@@ -2660,10 +2647,8 @@ or a hashref of the configuration options.
 
 	  $data_point_set =
 	    $data_point_set->intersect(
-				       $KARYOTYPE->{ $data_point->{chr} }{chr}{display_region}
-				       {
-					 accept} );
-
+				       $KARYOTYPE->{ $data_point->{chr} }{chr}{display_region}{accept} );
+	  
 	  $data_point->{start} = $data_point_set->min;
 	  $data_point->{end}   = $data_point_set->max;
 	}
@@ -4655,7 +4640,7 @@ sub draw_highlights {
       for my $data ( map { $_->{data}[0] } @{ $highlight_set->{data} } ) {
 	next unless $data->{data}{chr} eq $chr;
 	my $z = seek_parameter( "z", $data, $highlight_set, $datasets );
-	next unless $z == $targetz;
+	next unless defined $z && $z == $targetz;
 	my $dataset = Set::IntSpan->new(
 					sprintf(
 						"%d-%d", $data->{data}{start}, $data->{data}{end}
@@ -5251,6 +5236,7 @@ sub unit_fetch {
 
 # -------------------------------------------------------------------
 sub unit_validate {
+
   # Verify that a value's unit is one out of a provided list
   #
   # potential units are
@@ -6936,9 +6922,7 @@ sub read_chromosomes_order {
     @chrorder = (
 		 $CARAT,
 		 sort {
-		   $KARYOTYPE->{$a}{chr}{display_order} <=> $KARYOTYPE->{$b}{chr}
-		     {
-		       display_order}
+		   $KARYOTYPE->{$a}{chr}{display_order} <=> $KARYOTYPE->{$b}{chr}{display_order}
 		   } keys %$KARYOTYPE
 		);
   }
@@ -7236,9 +7220,7 @@ sub parse_chromosomes {
     my @chrs_tmp;
     if ( $CONF{chromosomes_order_by_karyotype} ) {
       @chrs_tmp = sort {
-	$KARYOTYPE->{$a}{chr}{display_order} <=> $KARYOTYPE->{$b}{chr}
-	  {
-	    display_order}
+	$KARYOTYPE->{$a}{chr}{display_order} <=> $KARYOTYPE->{$b}{chr}{display_order}
 	} grep( $KARYOTYPE->{$_}{chr}, keys %$KARYOTYPE );
     } else {
       @chrs_tmp = sort {
@@ -7344,10 +7326,8 @@ sub parse_chromosomes {
 sub report_chromosomes {
   for my $chr (
 	       sort {
-		 $KARYOTYPE->{$a}{chr}{display_order} <=> $KARYOTYPE->{$b}{chr}
-		   {
-		     display_order}
-		 } keys %$KARYOTYPE
+		 $KARYOTYPE->{$a}{chr}{display_order} <=> $KARYOTYPE->{$b}{chr}{display_order}
+	       } keys %$KARYOTYPE
 	      ) {
     next unless $KARYOTYPE->{$chr}{chr}{display};
 
@@ -7630,6 +7610,7 @@ sub allocate_colors {
 # -------------------------------------------------------------------
 sub rgb_color_opacity {
   my $color = shift;
+  return 1 if ! defined $color;
   if ( $color =~ /(.+)_a(\d+)/ ) {
     unless ( $CONF{image}{auto_alpha_colors}
 	     && $CONF{image}{auto_alpha_steps}
@@ -7637,7 +7618,6 @@ sub rgb_color_opacity {
       die "you are trying to process a transparent color ($color) ",
 	"but do not have auto_alpha_colors or auto_alpha_steps defined";
     }
-
     my $color_root = $1;
     my $opacity    = 1 - $2 / $CONF{image}{auto_alpha_steps};
   } else {
@@ -8217,7 +8197,7 @@ sub ribbon {
       $poly = GD::Polyline->new;
     }
 
-    my ( $x, $y, $xp, $yp );
+    my ( $x, $y, $xp, $yp ) = (0,0,0,0);
     for (
 	 my $angle = $start_a;
 	 $angle   <= $end_a;
@@ -8235,7 +8215,7 @@ sub ribbon {
     }
 
     if ( $params{radius_from} != $params{radius_to} ) {
-      ( $xp, $yp ) = ( undef, undef );
+      ( $xp, $yp ) = ( 0,0 );
       for (
 	   my $angle = $end_a;
 	   $angle    > $start_a;
@@ -8866,8 +8846,9 @@ sub validateconfiguration {
     confess "Error: no karotype file specified";
   }
 
-  $CONF{image}{png} ||= $CONF{png};
-  $CONF{image}{svg} ||= $CONF{svg};
+  $CONF{image}{"24bit"} ||= $CONF{"24bit"};
+  $CONF{image}{png}   ||= $CONF{png};
+  $CONF{image}{svg}   ||= $CONF{svg};
 
   if ( $CONF{image}{angle_offset} > 0 ) {
     $CONF{image}{angle_offset} -= 360;
@@ -8884,15 +8865,11 @@ sub validateconfiguration {
     $CONF{ $fld } = $EMPTY_STR if !defined $CONF{ $fld };
   }
 
-  if ( defined $CONF{debug} && $CONF{debug} !~ /^\d$/ ) {
-    $CONF{debug} = $CONF{debug} eq 'yes';
-  } else {
-    $CONF{debug} = 0;
-  }
 }
 
 # -------------------------------------------------------------------
 sub populateconfiguration {
+
   for my $key ( keys %OPT ) {
     $CONF{$key} = $OPT{$key};
   }
