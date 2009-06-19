@@ -110,7 +110,7 @@ or a hashref of the configuration options.
   my $package = shift;
 
   %OPT = ref $_[0] eq 'HASH' ? %{ $_[0] } : @_;
-  
+
   if ( $OPT{'configfile'} ) {
     loadconfiguration( $OPT{'configfile'} );
   } elsif ( $OPT{'config'} ) {
@@ -119,8 +119,8 @@ or a hashref of the configuration options.
     confess('No "configfile" or "config" parameter');
   }
 
-  populateconfiguration();  # copy command line options to config hash
-  validateconfiguration(); 
+  populateconfiguration(); # copy command line options to config hash
+  validateconfiguration();
 
   if ( $CONF{debug} > 1 ) {
     $Data::Dumper::Pad       = "debug parameters";
@@ -538,8 +538,21 @@ or a hashref of the configuration options.
   $IM->fill( 0, 0, $COLORS->{ $CONF{image}{background} } )
     if $bgfill && $PNG_MAKE;
 
-
-
+  ################################################################
+  # GD TTF sanity check - text must be rendered correctly by each font
+  
+  for my $fontfile (map { locate_file(file=>$_) } values %{$CONF{fonts}}) {
+    my $text = "abc";
+    my @label_bounds = GD::Image->stringFT($COLORS->{black},
+					   $fontfile,
+					   10,
+					   0, 0, 0, 
+					   $text);
+    my ( $label_width, $label_height ) = text_label_size(@label_bounds);
+    if(! $label_width || ! $label_height) {
+      confess "There was a problem with True Type font support. Circos could not render text from the font file $fontfile. Please check that gd (system graphics library) and GD (Perl's interface to gd) are compiled with True Type support.";
+    }
+  }
 
   $GCIRCUM = $Gsize;
   for my $i ( 0 .. @IDEOGRAMS - 1 ) {
@@ -3034,6 +3047,7 @@ or a hashref of the configuration options.
 	    #           \
 	    #            \--  LABEL
 	    #
+
 	    my $link_thickness = unit_strip(
 					    unit_validate(
 							  seek_parameter(
@@ -3043,127 +3057,58 @@ or a hashref of the configuration options.
 							  "p"
 							 )
 					   );
+	    my $line_colors = seek_parameter( "link_color", $datum, @param_path )
+	      || seek_parameter( "color", $datum, @param_path );
 
-	    my ( $line_brush, $line_colors ) = fetch_brush(
-							   $link_thickness,
-							   $link_thickness,
-							   seek_parameter( "link_color", $datum, @param_path )
-							   || seek_parameter( "color", $datum, @param_path )
-							  );
+	    draw_line(
+		      [
+		       getxypos(
+				$data_point->{angle},
+				$data_point->{radius_new} + $link_dims[0]
+			       ),
+		       getxypos(
+				$data_point->{angle},
+				$data_point->{radius_new} +
+				sum( @link_dims[ 0, 1 ] )
+			       ),
+		      ],
+		      $link_thickness,
+		      $line_colors
+		     );
 
-	    $IM->setBrush($line_brush) if $PNG_MAKE;
+	    draw_line(
+		      [
+		       getxypos(
+				$data_point->{angle},
+				$data_point->{radius_new} +
+				sum( @link_dims[ 0, 1 ] )
+			       ),
+		       getxypos(
+				$data_point->{angle_new},
+				$data_point->{radius_new} +
+				sum( @link_dims[ 0, 1, 2 ] )
+			       ),
+		      ],
+		      $link_thickness,
+		      $line_colors
+		     );
 
-	    $IM->line(
-		      getxypos(
-			       $data_point->{angle},
-			       $data_point->{radius_new} + $link_dims[0]
-			      ),
-		      getxypos(
-			       $data_point->{angle},
-			       $data_point->{radius_new} +
-			       sum( @link_dims[ 0, 1 ] )
-			      ),
-		      gdBrushed
-		     ) if $PNG_MAKE;
-
-	    $IM->line(
-		      getxypos(
-			       $data_point->{angle},
-			       $data_point->{radius_new} +
-			       sum( @link_dims[ 0, 1 ] )
-			      ),
-		      getxypos(
-			       $data_point->{angle_new},
-			       $data_point->{radius_new} +
-			       sum( @link_dims[ 0, 1, 2 ] )
-			      ),
-		      gdBrushed
-		     ) if $PNG_MAKE;
-
-	    $IM->line(
-		      getxypos(
-			       $data_point->{angle_new},
-			       $data_point->{radius_new} +
-			       sum( @link_dims[ 0, 1, 2 ] )
-			      ),
-		      getxypos(
-			       $data_point->{angle_new},
-			       $data_point->{radius_new} +
+	    draw_line(
+		      [
+		       getxypos(
+				$data_point->{angle_new},
+				$data_point->{radius_new} +
+				sum( @link_dims[ 0, 1, 2 ] )
+			       ),
+		       getxypos(
+				$data_point->{angle_new},
+				$data_point->{radius_new} +
 			       sum( @link_dims[ 0, 1, 2, 3 ] )
-			      ),
-		      gdBrushed
-		     ) if $PNG_MAKE;
-
-	    printsvg(
-		     sprintf(
-			     q{<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" style="stroke-width: %.1f; stroke: rgb(%d,%d,%d);" />},
-			     getxypos(
-				      $data_point->{angle},
-				      $data_point->{radius_new} + $link_dims[0]
-				     ),
-			     getxypos(
-				      $data_point->{angle},
-				      $data_point->{radius_new} +
-                                      sum( @link_dims[ 0, 1 ] )
-				     ),
-			     $link_thickness,
-			     rgb_color(
-				       seek_parameter( "link_color", $datum,
-						       @param_path )
-				       || seek_parameter(
-							 "color", $datum, @param_path
-							)
-				      ),
-                            )
-		    );
-
-	    printsvg(
-		     sprintf(
-			     q{<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" style="stroke-width: %.1f; stroke: rgb(%d,%d,%d);" />},
-			     getxypos(
-				      $data_point->{angle},
-				      $data_point->{radius_new} +
-                                      sum( @link_dims[ 0, 1 ] )
-				     ),
-			     getxypos(
-				      $data_point->{angle_new},
-				      $data_point->{radius_new} +
-                                      sum( @link_dims[ 0, 1, 2 ] )
-				     ),
-			     $link_thickness,
-			     rgb_color(
-				       seek_parameter( "link_color", $datum,
-						       @param_path )
-				       || seek_parameter(
-							 "color", $datum, @param_path
-							)
-				      ),
-                            )
-		    );
-
-	    printsvg(
-		     sprintf(
-			     q{<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" style="stroke-width: %.1f; stroke: rgb(%d,%d,%d);" />},
-			     getxypos(
-				      $data_point->{angle_new},
-				      $data_point->{radius_new} +
-                                      sum( @link_dims[ 0, 1, 2 ] )
-				     ),
-			     getxypos(
-				      $data_point->{angle_new},
-				      $data_point->{radius_new} +
-                                      sum( @link_dims[ 0, 1, 2, 3 ] )
-				     ),
-			     $link_thickness,
-			     rgb_color(
-				       seek_parameter( "link_color", $datum,
-						       @param_path )
-				       || seek_parameter(
-							 "color", $datum, @param_path
-							)
-				      ),
-                            )
-		    );
+			       ),
+		       ],
+		      $link_thickness,
+		      $line_colors
+		     );
 
 	  }
 
@@ -3172,138 +3117,75 @@ or a hashref of the configuration options.
 		    %$labeldata,
 		    mapoptions => { object_type => "trackdata" }
 		   );
+
 	} elsif ( $plot_type eq "scatter" ) {
+
 	  my $glyph = seek_parameter( "glyph", $datum, @param_path );
 
 	  if ( !$value_outofbounds ) {
 	    if ( $glyph eq "circle" ) {
-	      if (
-		  seek_parameter(
-				 "fill_color", $datum, @param_path
-                                )
-		 ) {
+	      # the circle is a special glyph because it is not handled as a polygon, but rather
+	      # with the circle (SVG) or arc (GD) function
+	      if($SVG_MAKE) {
 		my $svg_colors;
-		if (
-		    seek_parameter(
-				   "stroke_color", $datum, @param_path
-				  )
-		   ) {
-		  $svg_colors .= sprintf(
-					 "stroke:rgb(%d,%d,%d);",
-					 rgb_color(
-						   seek_parameter(
-								  "stroke_color", $datum,
-								  @param_path
-								 )
-						  )
+		if ( seek_parameter("stroke_color", $datum, @param_path ) ) {
+		  $svg_colors .= sprintf( "stroke:rgb(%d,%d,%d);",
+					  rgb_color( seek_parameter( "stroke_color", $datum, @param_path ) )
 					);
 		}
-
-		if (
-		    seek_parameter(
-				   "fill_color", $datum, @param_path
-				  )
-		   ) {
-		  $svg_colors .= sprintf(
-					 "fill:rgb(%d,%d,%d);",
-					 rgb_color(
-						   seek_parameter(
-								  "fill_color", $datum,
-								  @param_path
-								 )
-						  )
-					);
-		}
-
+		  if (seek_parameter("fill_color", $datum, @param_path ) ) {
+		    $svg_colors .= sprintf(
+					   "fill:rgb(%d,%d,%d);",
+					   rgb_color( seek_parameter( "fill_color", $datum, @param_path ) )
+					  );
+		  }
 		my $svg = sprintf(
 				  q{<circle cx="%.1f" cy="%.1f" r="%.1f" style="stroke-width: %.1f; %s"/>},
 				  getxypos( $angle, $radius ),
-				  seek_parameter( "glyph_size", $datum,
-						  @param_path ) / 2,
-				  seek_parameter(
-						 "stroke_thickness", $datum,
-						 @param_path
-						),
-				  $svg_colors,
+				  seek_parameter( "glyph_size", $datum, @param_path ) / 2,
+				  seek_parameter( "stroke_thickness", $datum, @param_path ),
+				    $svg_colors,
 				 );
-
 		printsvg($svg);
-
-		$IM->filledArc(
-			       getxypos( $angle, $radius ),
-			       seek_parameter(
-					      "glyph_size", $datum, @param_path
-					     ),
-			       seek_parameter(
-					      "glyph_size", $datum, @param_path
-					     ),
-			       0, 360,
-			       $COLORS->{
-					 seek_parameter(
-							"fill_color", $datum,
-							@param_path
-						       )
-					}
-			      ) if $PNG_MAKE;
 	      }
-
-	      if (
-		  seek_parameter(
-				 "stroke_thickness", $datum, @param_path
-                                )
-		 ) {
-		my $svg = sprintf(
-				  q{<circle cx="%.1f" cy="%.1f" r="%.1f" style="stroke-width: %.1f; stroke: rgb(%d,%d,%d); fill: none;" />},
-				  getxypos( $angle, $radius ),
-				  seek_parameter( "glyph_size", $datum,
-						  @param_path ) / 2,
-				  seek_parameter(
-						 "stroke_thickness", $datum,
-						 @param_path
-						),
-				  rgb_color(
-					    seek_parameter(
-							   "stroke_color", $datum,
-							   @param_path
-							  )
-					   ),
-				 );
-
-		printsvg($svg);
-
-		my ( $line_brush, $line_colors ) = fetch_brush(
-							       seek_parameter(
-									      "stroke_thickness", $datum,
-									      @param_path
-									     ),
-							       seek_parameter(
-									      "stroke_thickness", $datum,
-									      @param_path
-									     ),
-							       seek_parameter(
-									      "stroke_color", $datum, @param_path
-									     )
-							      );
-
-		$IM->setBrush($line_brush) if $PNG_MAKE;
-
-		$IM->arc(
-			 getxypos( $angle, $radius ),
-			 seek_parameter(
-                                        "glyph_size", $datum, @param_path
-				       ),
-			 seek_parameter(
-                                        "glyph_size", $datum, @param_path
-				       ),
-			 0, 360,
-			 gdBrushed
-			) if $PNG_MAKE;
+	      if($PNG_MAKE) {
+		if ( seek_parameter( "fill_color", $datum, @param_path ) ) {
+		  $IM->filledArc(
+				 getxypos( $angle, $radius ),
+				 seek_parameter("glyph_size", $datum, @param_path),
+				 seek_parameter("glyph_size", $datum, @param_path),
+				 0, 360,
+				 aa_color( seek_parameter("fill_color",$datum,@param_path), $IM, $COLORS )
+				);
+		}
+		if ( seek_parameter( "stroke_thickness", $datum, @param_path ) ) {
+		  my $thickness = seek_parameter( "stroke_thickness", $datum, @param_path );
+		  my $stroke_color = seek_parameter( "stroke_color", $datum, @param_path );
+		  my $color_obj;
+		  if($thickness == 1 && rgb_color_opacity($stroke_color) == 1) {
+		    # this is a 1-px thick line and the color has no transparency - 
+		    # go ahead and antialias this line
+		    $IM->setAntiAliased($COLORS->{$stroke_color});
+		    $color_obj = gdAntiAliased;
+		  } else {
+		    $IM->setThickness($thickness) if $thickness > 1;
+		    $color_obj = $COLORS->{$stroke_color};
+		  }
+		  $IM->arc(
+			   getxypos( $angle, $radius ),
+			   seek_parameter( "glyph_size", $datum, @param_path ),
+			   seek_parameter( "glyph_size", $datum, @param_path ),
+			   0, 360,
+			   $color_obj,
+			  );
+		}
 	      }
 	    } elsif (
 		     $glyph eq "rectangle"
 		     || $glyph eq "square"
 		     || $glyph eq "triangle"
-		     || $glyph eq "cross" 
+		     || $glyph eq "cross"
+		     || $glyph =~ /ngon/
 		    ) {
 	      my ( $x, $y ) = getxypos( $angle, $radius );
 	      my $size = seek_parameter( "glyph_size", $datum,
@@ -3342,97 +3224,64 @@ or a hashref of the configuration options.
 			[ $x - $size / 2, $y ],
 			[ $x,             $y ]
 		       );
+	      } elsif ( $glyph =~ /ngon(\d+)?/ ) {
+		my $sides = $1 || 5;
+		for my $side ( 0 .. $sides - 1 ) {
+		  my $angle = 360 * $side / $sides;
+		  push @pts, [ $x + $size/2 * cos( $angle * $DEG2RAD ),
+			       $y + $size/2 * sin( $angle * $DEG2RAD ) ];
+		}
 	      }
 
 	      map { $poly->addPt(@$_) } map {
-		[
-		 rotate_xy(
-			   @$_, $x, $y, $angle + $angle_shift
-			  )
-		]
+		[ rotate_xy( @$_, $x, $y, $angle + $angle_shift ) ]
 	      } @pts;
-
-	      if (
-		  seek_parameter( "fill_color", $datum,
-				  @param_path )
-		  && $glyph ne "cross"
-		 ) {
+	      
+	      if ( seek_parameter( "fill_color", $datum, @param_path ) 
+		   && 
+		   $glyph ne "cross" ) {
 		my $svg = sprintf(
 				  q{<polygon points="%s" style="stroke-width: %.1f; stroke: rgb(%d,%d,%d); fill: rgb(%d,%d,%d);" />},
 				  join( $SPACE,
                                         map { join( $COMMA, @$_ ) }
 					$poly->vertices ),
-				  seek_parameter(
-						 "stroke_thickness", $datum,
-						 @param_path
-						),
-				  rgb_color(
-					    seek_parameter(
-							   "stroke_color", $datum,
-							   @param_path
-							  )
-					   ),
-				  rgb_color(
-					    seek_parameter(
-							   "fill_color", $datum,
-							   @param_path
-							  )
-					   ),
+				  seek_parameter("stroke_thickness", $datum,@param_path ),
+				  rgb_color(seek_parameter("stroke_color", $datum, @param_path ) ),
+				  rgb_color(seek_parameter("fill_color", $datum, @param_path  ) ),
 				 );
 
 		printsvg($svg);
-
 		$IM->filledPolygon(
 				   $poly,
-				   $COLORS->{
-					     seek_parameter(
-							    "fill_color", $datum,
-							    @param_path
-							   )
-					    }
+				   aa_color( seek_parameter( "fill_color", $datum, @param_path ), $IM, $COLORS )
 				  ) if $PNG_MAKE;
 	      }
 
-	      if (
-		  seek_parameter(
-				 "stroke_thickness", $datum, @param_path
-                                )
-		 ) {
+	      if (seek_parameter("stroke_thickness", $datum, @param_path ) ) {
 		my $svg = sprintf(
 				  q{<polygon points="%s" style="stroke-width: %.1f; stroke: rgb(%d,%d,%d); fill: none;" />},
 				  join( $SPACE,
                                         map { join( $COMMA, @$_ ) }
 					$poly->vertices ),
-				  seek_parameter(
-						 "stroke_thickness", $datum,
-						 @param_path
-						),
-				  rgb_color(
-					    seek_parameter(
-							   "stroke_color", $datum,
-							   @param_path
-							  )
-					   ),
+				  seek_parameter("stroke_thickness", $datum,@param_path),
+				  rgb_color(seek_parameter("stroke_color", $datum, @param_path ) ),
 				 );
 
 		printsvg($svg);
 
-		my ( $line_brush, $line_colors ) = fetch_brush(
-							       seek_parameter(
-									      "stroke_thickness", $datum,
-									      @param_path
-									     ),
-							       seek_parameter(
-									      "stroke_thickness", $datum,
-									      @param_path
-									     ),
-							       seek_parameter(
-									      "stroke_color", $datum, @param_path
-									     )
-							      );
-
-		$IM->setBrush($line_brush) if $PNG_MAKE;
-		$IM->polygon( $poly, gdBrushed ) if $PNG_MAKE;
+		my $thickness = seek_parameter( "stroke_thickness", $datum, @param_path );
+		my $stroke_color = seek_parameter( "stroke_color", $datum, @param_path );
+		my $color_obj;
+		if($thickness == 1 && rgb_color_opacity($stroke_color) == 1) {
+		  # this is a 1-px thick line and the color has no transparency - 
+		  # go ahead and antialias this line
+		  $IM->setAntiAliased($COLORS->{$stroke_color});
+		  $color_obj = gdAntiAliased;
+		} else {
+		  $IM->setThickness($thickness) if $thickness > 1;
+		  $color_obj = $COLORS->{$stroke_color};
+		}
+		$IM->polygon( $poly, $color_obj ) if $PNG_MAKE;
 	      }
 	    }
 	  }
@@ -3496,6 +3345,7 @@ or a hashref of the configuration options.
 	    $data_point_prev = undef;
 	  }
 
+	  my $thickness = seek_parameter( "thickness", $datum, @param_path );
 	  my ( $line_brush, $line_colors ) = fetch_brush(
 							 seek_parameter( "thickness", $datum, @param_path ),
 							 seek_parameter( "thickness", $datum, @param_path )
@@ -3520,62 +3370,36 @@ or a hashref of the configuration options.
 	      getxypos( @{$data_point}{qw(angle radius)} );
 
 	    if ( $color1 ne $color2 ) {
-	      $line_brush->fill( 0, 0, $line_colors->{$color1} );
-	      $IM->setBrush($line_brush) if $PNG_MAKE;
-	      $IM->line(
-			$xp, $yp,
-			( $x + $xp ) / 2,
-			( $y + $yp ) / 2, gdBrushed
-		       ) if $PNG_MAKE;
-	      printsvg(
-		       sprintf(
-			       q{<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" style="stroke-width: %.1f; stroke: rgb(%d,%d,%d);" />},
-			       $xp, $yp,
-			       ( $x + $xp ) / 2,
-			       ( $y + $yp ) / 2,
-			       seek_parameter(
-					      "thickness", $datum, @param_path
-					     ),
-			       rgb_color($color1),
-			      )
-		      );
+	      draw_line(
+			[
+			 $xp, $yp,
+			 ( $x + $xp ) / 2,
+			 ( $y + $yp ) / 2
+			],
+			$thickness,
+			$color1
+		       );
+	      draw_line(
+			[
+			 ( $x + $xp ) / 2,
+			 ( $y + $yp ) / 2,
+			 $x, $y
+			],
+			$thickness,
+			$color2
+		       );
 
-	      $line_brush->fill( 0, 0, $line_colors->{$color2} );
-	      $IM->setBrush($line_brush) if $PNG_MAKE;
-	      $IM->line(
-			( $x + $xp ) / 2,
-			( $y + $yp ) / 2,
-			$x, $y, gdBrushed
-		       ) if $PNG_MAKE;
-
-	      printsvg(
-		       sprintf(
-			       q{<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" style="stroke-width: %.1f; stroke: rgb(%d,%d,%d);" />},
-			       ( $x + $xp ) / 2,
-			       ( $y + $yp ) / 2,
-			       $x, $y,
-			       seek_parameter(
-					      "thickness", $datum, @param_path
-					     ),
-			       rgb_color($color2),
-			      )
-		      );
 	    } else {
-	      $line_brush->fill( 0, 0, $line_colors->{$color1} );
-	      $IM->setBrush($line_brush) if $PNG_MAKE;
-	      $IM->line( $xp, $yp, $x, $y, gdBrushed )
-		if $PNG_MAKE;
-	      printsvg(
-		       sprintf(
-			       q{<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" style="stroke-width: %.1f; stroke: rgb(%d,%d,%d);" />},
-			       $xp, $yp, $x, $y,
-			       seek_parameter(
-					      "thickness", $datum, @param_path
-					     ),
-			       rgb_color($color1),
-			      )
-		      );
+
+	      draw_line(
+			[
+			 $xp, $yp, $x, $y
+			],
+			$thickness,
+			$color1
+		       );
 	    }
+
 	  } elsif ( $plot_type eq "histogram" ) {
 	    my $first_on_ideogram;
 	    my $last_on_ideogram;
@@ -4134,26 +3958,14 @@ or a hashref of the configuration options.
 					       )
 		   );
 
-	      $IM->setBrush($line_brush) if $PNG_MAKE;
-	      $IM->line(
-			getxypos( $midangle, $prevpoint->{radius} ),
-			getxypos( $midangle, $radius ), gdBrushed )
-		if $PNG_MAKE;
-
-	      printsvg(
-		       sprintf(
-			       q{<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" style="stroke-width: %.1f; stroke: rgb(%d,%d,%d);" />},
-			       getxypos( $midangle, $prevpoint->{radius} ),
-			       getxypos( $midangle, $radius ),
-			       seek_parameter(
-					      "stroke_thickness", $datum,
-					      @param_path
-					     ),
-			       seek_parameter(
-					      "stroke_color", $datum, @param_path
-					     )
-			      )
-		      );
+	      draw_line(
+			[
+			 getxypos( $midangle, $prevpoint->{radius} ),
+			 getxypos( $midangle, $radius ),
+			 ],
+			seek_parameter( "stroke_thickness", $datum, @param_path ),
+			seek_parameter( "stroke_color", $datum, @param_path )
+		       );
 	    }
 	  }
 	} elsif ( $plot_type eq "heatmap" ) {
@@ -4528,9 +4340,11 @@ sub perturb_value {
 
 # -------------------------------------------------------------------
 sub draw_bezier {
-  # draw the bezier curve
-  my ( $points, $thickness, $color, $mapoptions ) = @_;
+  # draw the bezier curve on a bitmap image
+  # We are not using a brush anymore to draw thick lines, but rather setThickness($thickness).
+  my ( $points, $thickness, $color ) = @_;
 
+  # if we're not making a bitmap, this function is not used
   return if !$PNG_MAKE;
   if ( $thickness > 100 ) {
     confess "error - you are attempting to draw a bezier curve of ",
@@ -4542,27 +4356,62 @@ sub draw_bezier {
         "Is this what you want?";
   }
 
-  my ( $im_brush, $b_colors ) = fetch_brush( $thickness, $thickness, $color )
-    if $PNG_MAKE;
+  # In the current implementation of gd (2.0.35) antialiasing is
+  # incompatible with thick lines and transparency. Thus, antialiased lines
+  # are available only when thickness=1 and the color has no alpha channel.
 
-  $IM->setBrush($im_brush) if $PNG_MAKE;
-
+  my $line_color_obj;
+  if($thickness == 1 && rgb_color_opacity($color) == 1) {
+    # this is a 1-px thick line and the color has no transparency - 
+    # go ahead and antialias this line
+    $IM->setAntiAliased($COLORS->{$color});
+    $line_color_obj = gdAntiAliased;
+  } else {
+    $IM->setThickness($thickness) if $thickness > 1;
+    $line_color_obj = $COLORS->{$color};
+  }
+  
   for my $i ( 0 .. @$points - 2 ) {
-    $IM->line( @{ $points->[$i] }, @{ $points->[ $i + 1 ] }, gdBrushed )
-      if $PNG_MAKE;
+    $IM->line( @{ $points->[$i] }, @{ $points->[ $i + 1 ] }, $line_color_obj )
+  }
+  
+  # return thickness to 1px
+  $IM->setThickness(1) if $thickness > 1;
+}
+
+sub aa_color {
+  my ($color,$im,$imcolors) = @_;
+  if(rgb_color_opacity($color) == 1) {
+    $im->setAntiAliased( $imcolors->{$color} );
+    return gdAntiAliased;
+  } else {
+    $imcolors->{$color};
   }
 }
 
 # -------------------------------------------------------------------
 sub draw_line {
-  my ( $points, $thickness, $color, $mapoptions ) = @_;
+  # draw the bezier curve
+  # We are not using a brush anymore to draw thick lines, but rather setThickness($thickness).
+  my ( $points, $thickness, $color ) = @_;
 
-  my ( $im_brush, $b_colors ) = fetch_brush( $thickness, $thickness, $color )
-    if $PNG_MAKE;
-
-  #$im_brush->fill(0,0,$b_colors->{$color}) if $PNG_MAKE;
-  $IM->setBrush($im_brush) if $PNG_MAKE;
-  $IM->line( @$points, gdBrushed ) if $PNG_MAKE;
+  if($PNG_MAKE) {
+    my $line_color_obj;
+    # In the current implementation of gd (2.0.35) antialiasing is
+    # incompatible with thick lines and transparency. Thus, antialiased lines
+    # are available only when thickness=1 and the color has no alpha channel.
+    if($thickness == 1 && rgb_color_opacity($color) == 1) {
+      # this is a 1-px thick line and the color has no transparency - 
+      # go ahead and antialias this line
+      $IM->setAntiAliased($COLORS->{$color});
+      $line_color_obj = gdAntiAliased;
+    } else {
+      $IM->setThickness($thickness) if $thickness > 1;
+      $line_color_obj = $COLORS->{$color};
+    }
+    $IM->line( @$points, $line_color_obj );
+    $IM->setThickness(1) if $thickness > 1;
+  }
 
   # svg line
   my $svg = sprintf(
@@ -4617,7 +4466,6 @@ sub seek_parameter {
       }
     }
   }
-
   return undef;
 }
 
@@ -7609,6 +7457,9 @@ sub allocate_colors {
 
 # -------------------------------------------------------------------
 sub rgb_color_opacity {
+  # Returns the opacity of a color, based on its name. Colors with a
+  # trailing _aNNN have a transparency level in the range
+  # 0..auto_alpha_steps. 
   my $color = shift;
   return 1 if ! defined $color;
   if ( $color =~ /(.+)_a(\d+)/ ) {
@@ -8042,11 +7893,20 @@ sub ribbon {
 
     # stroke the polygon, if required
     if ( $params{edgestroke} ) {
-      my ( $p_brush, $p_colors ) =
-	fetch_brush( $params{edgestroke}, $params{edgestroke},
-		     $params{edgecolor} );
-      $IM->setBrush($p_brush);
-      $IM->polygon( $poly, gdBrushed );
+      my $thickness = $params{edgestroke};
+      my $color     = $params{edgecolor};
+      my $line_color_obj;
+      if($thickness == 1 && rgb_color_opacity($color) == 1) {
+	# this is a 1-px thick line and the color has no transparency - 
+	# go ahead and antialias this line
+	$IM->setAntiAliased($COLORS->{$color});
+	$line_color_obj = gdAntiAliased;
+      } else {
+	$IM->setThickness($thickness) if $thickness > 1;
+	$line_color_obj = $COLORS->{$color};
+      }
+      $IM->polygon( $poly, $line_color_obj );
+      $IM->setThickness(1) if $thickness > 1;
     }
   }
 }
@@ -8236,24 +8096,30 @@ sub ribbon {
 	 && ref $poly eq "GD::Polygon"
 	 && $PNG_MAKE
        ) {
-      $IM->filledPolygon( $poly, $COLORS->{ $params{fillcolor} } );
+      $IM->setAntiAliased($COLORS->{ $params{fillcolor}});
+      $IM->filledPolygon( $poly, gdAntiAliased );
     }
 
     # stroke the polygon
     if ( $params{edgestroke} ) {
-      my ( $p_brush, $p_colors ) = fetch_brush( 
-					       $params{edgestroke}, 
-					       $params{edgestroke},
-					       $params{edgecolor} || $params{fillcolor} 
-					      );
-
-      $IM->setBrush($p_brush) if $PNG_MAKE;
-
-      if ( ref $poly eq "GD::Polygon" ) {
-	$IM->polygon( $poly, gdBrushed ) if $PNG_MAKE;
+      my $thickness = $params{edgestroke};
+      my $color     = $params{edgecolor} || $params{fillcolor};
+      my $line_color_obj;
+      if($thickness == 1 && rgb_color_opacity($color) == 1) {
+	# this is a 1-px thick line and the color has no transparency - 
+	# go ahead and antialias this line
+	$IM->setAntiAliased($COLORS->{$color});
+	$line_color_obj = gdAntiAliased;
       } else {
-	$IM->polydraw( $poly, gdBrushed ) if $PNG_MAKE;
+	$IM->setThickness($thickness) if $thickness > 1;
+	$line_color_obj = $COLORS->{$color};
       }
+      if ( ref $poly eq "GD::Polygon" ) {
+	$IM->polygon( $poly, $line_color_obj ) if $PNG_MAKE;
+      } else {
+	$IM->polydraw( $poly, $line_color_obj ) if $PNG_MAKE;
+      }
+      $IM->setThickness(1) if $thickness > 1;
     }
 
     $sliceid++;
