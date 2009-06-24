@@ -229,3 +229,7 @@ Added file_delim to allow any field delimiter to be used in input files (e.g. a 
 Added sanity check for True Type font support in GD.
 
 Added antialiasing to lines and polygins. Limitations in gd prevent antialiasing of lines that have a thickness >1 pixel or that use a color with an alpha channel.
+
+Fixed bug with parameter parsing that was using = as a delimiter.
+
+Added image maps (via the url parameter) to ideograms, bands, ticks, highlights, tiles, ribbons, text, scatter plots, histograms and heat maps.
