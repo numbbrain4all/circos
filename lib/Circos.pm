@@ -90,7 +90,8 @@ Readonly my $SPACE      => q{ };
 # 
 
 my ( %OPT, %CONF, $DIMS, $IM, $IM_BRUSHES, $PNG_MAKE, $SVG_MAKE,
-    @IDEOGRAMS, $KARYOTYPE, $COLORS, $GCIRCUM );
+     $MAP_MAKE, @MAP_ELEMENTS,
+     @IDEOGRAMS, $KARYOTYPE, $COLORS, $GCIRCUM );
 my $GSIZE_NOSCALE = 0;
 
 # -------------------------------------------------------------------
@@ -149,6 +150,23 @@ or a hashref of the configuration options.
   $PNG_MAKE = $CONF{image}{png} if defined $CONF{image}{png};
 
   $PNG_MAKE = 1 if !$SVG_MAKE && !$PNG_MAKE;
+
+  my $outputfile_map;
+  if ( $CONF{image}{image_map_use} || ! defined $CONF{image_map_use} ) {
+    $outputfile_map = $CONF{image}{image_map_file} || "$outputfile.html";
+    if($outputfile_map !~ /\//) {
+      $outputfile_map = sprintf("%s/%s",
+				$CONF{outputdir}  || $CONF{image}{dir},
+				$outputfile_map);
+    }
+    $MAP_MAKE = 1;
+  }
+
+  if ( $MAP_MAKE) {
+    open MAP, ">$outputfile_map" or confess "Cannot write to the image map file $outputfile_map: $!\n";
+    printf MAP "<map name='%s'>\n",
+      $CONF{image}{image_map_name} || ($CONF{outputfile} || $CONF{image}{file})."html";
+  }
 
   if ( $SVG_MAKE ) {
     open SVG, '>', $outputfile_svg 
@@ -677,11 +695,19 @@ or a hashref of the configuration options.
 	      );
 
     draw_highlights( $data->{highlights}, $chr, $ideogram->{set}, $ideogram,
-		     {
-		      ideogram => 0, layer_with_data => 0 } );
-
+		     { ideogram => 0, layer_with_data => 0 } );
+    
     # first pass at drawing ideogram - stroke and fill
     # TODO consider removing this if radius_from==radius_to
+
+    my $url = seek_parameter("url",$ideogram) || $CONF{ideogram}{ideogram_url};
+    #printdumper($ideogram);
+    #printinfo($url);
+    $url = format_url(url=>$url,param_path=>[$ideogram,
+					     {start=>$ideogram->{set}->min,
+					      end=>$ideogram->{set}->max,}
+					    ]);
+    #printinfo($url);
     slice(
 	  image       => $IM,
 	  start       => $start,
@@ -694,17 +720,7 @@ or a hashref of the configuration options.
 	  fillcolor   => $CONF{ideogram}{fill}
 	  ? ( $KARYOTYPE->{$chr}{chr}{color} || $CONF{ideogram}{fill_color} )
 	  : undef,
-	  imagemap   => $CONF{imagemap},
-	  mapoptions => {
-			 object_type     => 'ideogram',
-			 object_label    => $chr,
-			 object_sublabel => $ideogram->{tag} || $DASH,
-			 object_data     => {
-					     start => $start,
-					     scale => $ideogram->{scale},
-					     end   => $end
-					    },
-			},
+	  mapoptions => { url=>$url },
 	 );
 
     if ( $CONF{ideogram}{show_label} ) {
@@ -734,7 +750,6 @@ or a hashref of the configuration options.
 		    $DIMS->{ideogram}{ $ideogram->{tag} }{label}{radius},
 		    $label_width, $label_height );
       my $pos = get_set_middle( $ideogram->{set} );
-
       draw_text(
                 image => $IM,
                 font  => $fontfile,
@@ -764,11 +779,7 @@ or a hashref of the configuration options.
                 chr        => $chr,
                 start      => $pos,
                 end        => $pos,
-                imagemap   => $CONF{imagemap},
-                mapoptions => {
-			       object_type  => 'ideogramlabel',
-			       object_label => $KARYOTYPE->{$chr}{chr}{label}
-			      }
+                mapoptions => { url=>$url }
 	       );
     }
 
@@ -792,6 +803,10 @@ or a hashref of the configuration options.
 	  ? sprintf( '%s_a%d',
 		     $band->{color}, $CONF{ideogram}{band_transparency} )
 	    : $band->{color};
+
+      my $url = seek_parameter("url",$band) || $CONF{ideogram}{band_url};
+      $url = format_url(url=>$url,param_path=>[$band]);
+
       slice(
 	    image       => $IM,
 	    start       => $bandset->min,
@@ -802,16 +817,7 @@ or a hashref of the configuration options.
 	    radius_to  => get_ideogram_radius($ideogram),
 	    edgecolor  => $CONF{ideogram}{stroke_color},
 	    edgestroke => $CONF{ideogram}{band_stroke_thickness},
-	    imagemap   => $CONF{imagemap},
-	    mapoptions => {
-			   object_type   => 'cytoband',
-			   object_parent => $chr,
-			   object_label  => $band->{name},
-			   object_data   => {
-					     start => $bandstart,
-					     end   => $bandend
-					    },
-			  },
+	    mapoptions => { url=>$url },
 	    fillcolor => $CONF{ideogram}{fill_bands} ? $fillcolor : undef
 	   );
     }
@@ -1044,7 +1050,7 @@ or a hashref of the configuration options.
 				   $link->{data}[ $i - 1 ], @param_path
 				  );
 	  my $linkz = seek_parameter( "z", @i_link_param_path );
-	  next unless $linkz == $targetz;
+	  next unless ($linkz == $targetz) || (! $linkz && ! $targetz);
 
 	  my $perturb =
 	    seek_parameter( "perturb", @i_link_param_path );
@@ -1238,8 +1244,14 @@ or a hashref of the configuration options.
 		  ( $start1, $end1, $end2, $start2 );
 	      }
 	    }
-
+	    #printdumper($link->{data});
+	    my $url = seek_parameter("url",@i_link_param_path);
+	    $url = format_url(url=>$url,param_path=>[@i_link_param_path,
+						    {start=>round(($start1+$end1)/2),
+						     end=>round(($start2+$end2)/2)}]);;
+	    #printinfo("ribbon",$url);
 	    ribbon(
+		   mapoptions => {url=> $url},
 		   image     => $IM,
 		   start1    => $start1,
 		   end1      => $end1,
@@ -1273,12 +1285,11 @@ or a hashref of the configuration options.
 								  @i_link_param_path
 								 ),
 
-		   crest =>
-		   seek_parameter( "crest", @i_link_param_path ),
+		   crest => seek_parameter( "crest", @i_link_param_path ),
 		   perturb_crest => seek_parameter(
 						   "perturb_crest", @i_link_param_path
 						  ),
-
+		   
 		  );
 	  } elsif (
 		   defined 
@@ -1604,7 +1615,7 @@ or a hashref of the configuration options.
     for my $dataset ( make_list( $data->{plots}{dataset} ) ) {
 
       my @param_path = ( $dataset, $CONF{plots} );
-      next unless seek_parameter( "z", @param_path ) == $targetz;
+      next unless (seek_parameter( "z", @param_path ) == $targetz) || (! seek_parameter("z",@param_path) && ! $targetz);
 
       printsvg(qq{<g id="plot$plotid">}) if $SVG_MAKE;
 
@@ -2868,6 +2879,9 @@ or a hashref of the configuration options.
 	    unit_parse( seek_parameter( "r1", $datum, @param_path ),
                         get_ideogram_by_idx($i_start) );
 
+	  my $url = seek_parameter("url",$data_point,$datum,@param_path);
+	  $url = format_url(url=>$url,param_path=>[$data_point,$datum,@param_path]);
+
 	  slice(
 		image       => $IM,
 		start       => $data_point->{start},
@@ -2875,13 +2889,10 @@ or a hashref of the configuration options.
 		chr         => $data_point->{chr},
 		radius_from => $r0,
 		radius_to   => $r1,
-		edgecolor =>
-		seek_parameter( "stroke_color", $datum, @param_path ),
-		edgestroke => seek_parameter(
-					     "stroke_thickness", $datum, @param_path
-					    ),
-		fillcolor =>
-		seek_parameter( "fill_color", $datum, @param_path ),
+		edgecolor   => seek_parameter( "stroke_color", $datum, @param_path ),
+		edgestroke  => seek_parameter( "stroke_thickness", $datum, @param_path),
+		fillcolor   => seek_parameter( "fill_color", $datum, @param_path ),
+		mapoptions  => {url=>$url},
 	       );
 
 	  next;
@@ -3023,7 +3034,6 @@ or a hashref of the configuration options.
 				     ],
 			   svgangle => textanglesvg( $data_point->{angle_new} ),
 			   text     => $data_point->{label},
-			   imagemap => $CONF{imagemap},
 			   chr      => $data_point->{chr},
 			   start    => $data_point->{start},
 			   end      => $data_point->{end},
@@ -3112,13 +3122,18 @@ or a hashref of the configuration options.
 
 	  }
 
+	  my $url = seek_parameter( "url", $datum, @param_path );
+	  $url = format_url(url=>$url,param_path=>[$data_point,$datum,@param_path]);
 	  draw_text(
 		    image => $IM,
 		    %$labeldata,
-		    mapoptions => { object_type => "trackdata" }
+		    mapoptions => { url=>$url }
 		   );
 
 	} elsif ( $plot_type eq "scatter" ) {
+
+	  my $url = seek_parameter("url",$data_point,$datum,@param_path);
+	  $url = format_url(url=>$url,param_path=>[$data_point,$datum,@param_path]);
 
 	  my $glyph = seek_parameter( "glyph", $datum, @param_path );
 
@@ -3179,6 +3194,18 @@ or a hashref of the configuration options.
 			   $color_obj,
 			  );
 		}
+		if($url) {
+		  my ($x,$y) = getxypos( $angle, $radius );
+		  my $r = seek_parameter("glyph_size", $datum,@param_path);
+		  my $xshift = $CONF{image}{image_map_xshift}||0;
+		  my $yshift = $CONF{image}{image_map_xshift}||0;
+		  my $xmult  = $CONF{image}{image_map_xfactor}||1;
+		  my $ymult  = $CONF{image}{image_map_yfactor}||1;
+		  my @coords = ($x*$xmult + $xshift , $y*$ymult + $yshift, $r);
+		  report_image_map(shape=>"circle",
+				   coords=>\@coords,
+				   href=>$url);
+		}
 	      }
 	    } elsif (
 		     $glyph eq "rectangle"
@@ -3236,7 +3263,19 @@ or a hashref of the configuration options.
 	      map { $poly->addPt(@$_) } map {
 		[ rotate_xy( @$_, $x, $y, $angle + $angle_shift ) ]
 	      } @pts;
-	      
+
+	      my $url = seek_parameter("url",$datum,@param_path);
+	      $url = format_url(url=>$url,param_path=>[$data_point,$datum,@param_path]);
+	      if($url) {
+		my $xshift = $CONF{image}{image_map_xshift}||0;
+		my $yshift = $CONF{image}{image_map_xshift}||0;
+		my $xmult  = $CONF{image}{image_map_xfactor}||1;
+		my $ymult  = $CONF{image}{image_map_yfactor}||1;
+		my @coords = map { ( $_->[0]*$xmult + $xshift , $_->[1]*$ymult + $yshift ) } $poly->vertices;
+		report_image_map(shape=>"poly",
+				 coords=>\@coords,
+				 href=>$url);
+	      }
 	      if ( seek_parameter( "fill_color", $datum, @param_path ) 
 		   && 
 		   $glyph ne "cross" ) {
@@ -3286,6 +3325,8 @@ or a hashref of the configuration options.
 	    }
 	  }
 	} elsif ( $plot_type eq "line" || $plot_type eq "histogram" ) {
+	  my $url = seek_parameter("url",$data_point,$datum,@param_path);
+	  $url = format_url(url=>$url,param_path=>[$data_point,$datum,@param_path]);
 	  #
 	  # check whether adjacent points on the same ideogram are
 	  # within the max_gap distance,
@@ -3390,7 +3431,6 @@ or a hashref of the configuration options.
 		       );
 
 	    } else {
-
 	      draw_line(
 			[
 			 $xp, $yp, $x, $y
@@ -3399,8 +3439,8 @@ or a hashref of the configuration options.
 			$color1
 		       );
 	    }
-
 	  } elsif ( $plot_type eq "histogram" ) {
+
 	    my $first_on_ideogram;
 	    my $last_on_ideogram;
 
@@ -3454,13 +3494,8 @@ or a hashref of the configuration options.
 
 	    if ( !$join_bins ) {
 	      # bins are not joined
-	      if (
-		  seek_parameter(
-				 "fill_under", $datum, @param_path
-                                )
-		 ) {
-
-                                # floor of bin is 0 level
+	      if (seek_parameter("fill_under", $datum, @param_path)) {
+		# floor of bin is 0 level
 		slice(
 		      image       => $IM,
 		      start       => $data_point->{start},
@@ -3473,10 +3508,10 @@ or a hashref of the configuration options.
 						  "fill_color", $datum, @param_path
 						 ),
 		      edgecolor  => $color2,
-		      edgestroke => 0
+		      edgestroke => 0,
+		      mapoptions => {url=>$url},
 		     );
 	      }
-
 	      # draw drop end of previous bin
 	      slice(
 		    image       => $IM,
@@ -3491,7 +3526,6 @@ or a hashref of the configuration options.
 						 "thickness", $datum, @param_path
 						)
 		   ) if $data_point_prev && !$first_on_ideogram;
-
 	      # draw drop start of current bin
 	      slice(
 		    image       => $IM,
@@ -3506,7 +3540,6 @@ or a hashref of the configuration options.
 						 "thickness", $datum, @param_path
 						)
 		   );
-
 	      # draw roof of current bin
 	      slice(
 		    image       => $IM,
@@ -3530,11 +3563,7 @@ or a hashref of the configuration options.
 	      $pos_end = $data_point->{end};
 
 	      # bins are joined
-	      if (
-		  seek_parameter(
-				 "fill_under", $datum, @param_path
-                                )
-		 ) {
+	      if (seek_parameter("fill_under", $datum, @param_path)) {
 		slice(
 		      image       => $IM,
 		      start       => $pos_prev_end,
@@ -3543,16 +3572,14 @@ or a hashref of the configuration options.
 		      radius_from => $radius0
 		      ,		#$orientation eq "in" ? $r1 : $r0,
 		      radius_to => $data_point_prev->{radius},
-
-		      # bug fix v0.39
 		      fillcolor => seek_parameter(
 						  "fill_color", $datum_prev,
 						  @param_path
 						 ),
 		      edgecolor  => $color1,
-		      edgestroke => 0
+		      edgestroke => 0,
+		      mapoptions => {url=>$url},
 		     );
-
 		slice(
 		      image       => $IM,
 		      start       => $pos_start,
@@ -3565,12 +3592,10 @@ or a hashref of the configuration options.
 						  "fill_color", $datum, @param_path
 						 ),
 		      edgecolor  => $color2,
-		      edgestroke => 0
-		     )
-		  if seek_parameter( "fill_under", $datum,
-				     @param_path );
+		      edgestroke => 0,
+		      mapoptions => {url=>$url},
+		     ) if seek_parameter( "fill_under", $datum,@param_path );
 	      }
-
 	      slice(
 		    image       => $IM,
 		    start       => $pos_prev_end,
@@ -3579,9 +3604,7 @@ or a hashref of the configuration options.
 		    radius_from => $data_point_prev->{radius},
 		    radius_to   => $data_point_prev->{radius},
 		    edgecolor   => $color1,
-		    edgestroke  => seek_parameter(
-						  "thickness", $datum, @param_path
-						 )
+		    edgestroke  => seek_parameter("thickness", $datum, @param_path)
 		   );
 
 	      if ( $color1 ne $color2 ) {
@@ -3598,8 +3621,9 @@ or a hashref of the configuration options.
 			  );
 
 		if ( ( $r_min < $radius0 && $r_max > $radius0 )
-		     || (   $r_max < $radius0
-			    && $r_min > $radius0 )
+		     || ( $r_max < $radius0
+			  && 
+			  $r_min > $radius0 )
 		   ) {
 		  slice(
 			image => $IM,
@@ -3610,9 +3634,7 @@ or a hashref of the configuration options.
 			$data_point_prev->{radius},
 			radius_to  => $radius0,
 			edgecolor  => $color1,
-			edgestroke => seek_parameter(
-						     "thickness", $datum, @param_path
-						    )
+			edgestroke => seek_parameter("thickness", $datum, @param_path)
 		       );
 
 		  slice(
@@ -3623,9 +3645,7 @@ or a hashref of the configuration options.
 			radius_from => $radius0,
 			radius_to   => $data_point->{radius},
 			edgecolor   => $color2,
-			edgestroke  => seek_parameter(
-						      "thickness", $datum, @param_path
-						     )
+			edgestroke  => seek_parameter("thickness", $datum, @param_path)
 		       );
 		} else {
 		  slice(
@@ -3636,9 +3656,7 @@ or a hashref of the configuration options.
 			radius_from => $r_min,
 			radius_to   => $r_max,
 			edgecolor  => $join_color,
-			edgestroke => seek_parameter(
-						     "thickness", $datum, @param_path
-						    )
+			edgestroke => seek_parameter("thickness", $datum, @param_path)
 		       );
 		}
 	      } else {
@@ -3649,15 +3667,10 @@ or a hashref of the configuration options.
 		      chr         => $data_point_prev->{chr},
 		      radius_from => $data_point_prev->{radius},
 		      radius_to   => $data_point->{radius},
-		      edgecolor   => seek_parameter(
-						    "color", $datum, @param_path
-						   ),
-		      edgestroke => seek_parameter(
-						   "thickness", $datum, @param_path
-						  )
+		      edgecolor   => seek_parameter("color", $datum, @param_path),
+		      edgestroke => seek_parameter("thickness", $datum, @param_path)
 		     );
 	      }
-
 	      slice(
 		    image       => $IM,
 		    start       => $pos_start,
@@ -3666,9 +3679,7 @@ or a hashref of the configuration options.
 		    radius_from => $data_point->{radius},
 		    radius_to   => $data_point->{radius},
 		    edgecolor   => $color2,
-		    edgestroke  => seek_parameter(
-						  "thickness", $datum, @param_path
-						 )
+		    edgestroke  => seek_parameter("thickness", $datum, @param_path)
 		   );
 	    }
 
@@ -3686,9 +3697,7 @@ or a hashref of the configuration options.
 		    radius_from => $data_point->{radius},
 		    radius_to   => $radius0,   
 		    edgecolor   => $color2,
-		    edgestroke  => seek_parameter(
-						  "thickness", $datum, @param_path
-						 )
+		    edgestroke  => seek_parameter("thickness", $datum, @param_path)
 		   );
 	    }
 
@@ -3699,12 +3708,10 @@ or a hashref of the configuration options.
 		    end         => $data_point->{end},
 		    chr         => $data_point->{chr},
 		    radius_from => $data_point->{radius},
-		    radius_to =>
-		    $radius0,   #$orientation eq "in" ? $r1 : $r0,
+		    radius_to   => $radius0,   
+		    #$orientation eq "in" ? $r1 : $r0,
 		    edgecolor  => $color2,
-		    edgestroke => seek_parameter(
-						 "thickness", $datum, @param_path
-						)
+		    edgestroke => seek_parameter("thickness", $datum, @param_path)
 		   );
 	    }
 	  }
@@ -3833,7 +3840,9 @@ or a hashref of the configuration options.
 	      }
 	    }
 	  }
-
+	  my $url = seek_parameter("url",$data_point,$datum,@param_path);
+	  $url = format_url(url=>$url,param_path=>[$data_point,$datum,@param_path]);
+	  #printinfo($url);
 	  slice(
 		image       => $IM,
 		start       => $set->min,
@@ -3853,14 +3862,7 @@ or a hashref of the configuration options.
 					     "stroke_thickness", $datum->{data}[0],
 					     $datum,             @param_path
 					    ),
-		mapoptions => {
-			       object_type   => "tile",
-			       object_parent => $data_point->{chr},
-			       object_data   => {
-						 start => $set->min,
-						 end   => $set->max
-						},
-			      },
+		mapoptions => { url=>$url },
 		fillcolor => $color,
 	       );
 	} elsif ( $plot_type eq "histogram" ) {
@@ -3888,11 +3890,7 @@ or a hashref of the configuration options.
 		( $prevpoint->{start} + $datum->{start} ) / 2;
 	      my $midangle =
 		getanglepos( $midpos, $datum->{chr} );
-	      if (
-		  seek_parameter(
-				 "fill_under", $datum, $dataset, $plot
-                                )
-		 ) {
+	      if (seek_parameter("fill_under", $datum, $dataset, $plot)) {
 		slice(
 		      image       => $IM,
 		      start       => $prevpoint->{start},
@@ -3998,7 +3996,9 @@ or a hashref of the configuration options.
 	  }
 
 	  my $color = $colors[$color_index];
-
+	  my $url = seek_parameter("url",$data_point,$datum,@param_path);
+	  $url = format_url(url=>$url,param_path=>[{color=>$color},
+						   $data_point,$datum,@param_path]);
 	  slice(
 		image       => $IM,
 		start       => $data_point->{start},
@@ -4014,15 +4014,7 @@ or a hashref of the configuration options.
 					     "stroke_thickness", $datum->{data}[0],
 					     $datum,             @param_path
 					    ),
-		mapoptions => {
-			       object_type   => "heatmap",
-			       object_parent => $data_point->{chr},
-			       object_data   => {
-						 start => $data_point->{start},
-						 value => $value,
-						 end   => $data_point->{end}
-						},
-			      },
+		mapoptions => {url=>$url},
 		fillcolor => $color,
 	       );
 	}
@@ -4038,6 +4030,51 @@ or a hashref of the configuration options.
   }
 
  OUT:
+
+  if ($MAP_MAKE) {
+    for my $map_element (reverse @MAP_ELEMENTS) {
+      printf MAP $map_element->{string},"\n";
+      if($CONF{image}{image_map_overlay}) {
+	# create an overlay of the image map elements
+	my $poly = GD::Polygon->new();
+	my @coords = map {round($_)} @{$map_element->{coords}};
+	if(@coords == 3) {
+	  if($CONF{image}{image_map_overlay_fill_color}) {
+	    $IM->filledArc(
+		     @coords,
+		     $coords[2],
+		     0, 360,
+		     aa_color($CONF{image}{image_map_overlay_fill_color},$IM,$COLORS)
+		    );
+	  }
+	  if($CONF{image}{image_map_overlay_stroke_color}) {
+	    $IM->arc(
+		     @coords,
+		     $coords[2],
+		     0, 360,
+		     aa_color($CONF{image}{image_map_overlay_stroke_color},$IM,$COLORS)
+		    );
+	  }
+	} else {
+	  while(my ($x,$y) = splice(@coords,0,2)) {
+	    $poly->addPt($x,$y);
+	  }
+	  if($CONF{image}{image_map_overlay_fill_color}) {
+	    $IM->filledPolygon($poly,
+			       aa_color($CONF{image}{image_map_overlay_fill_color},$IM,$COLORS));
+	  }
+	  if($CONF{image}{image_map_overlay_stroke_color}) {
+	    print $IM->polygon($poly,
+			       aa_color($CONF{image}{image_map_overlay_stroke_color},$IM,$COLORS));
+	  }
+	}
+      }
+    }
+    printf MAP "</map>\n";
+    close(MAP);
+    printinfo("created image map at $outputfile_map");
+  }
+
   if ($PNG_MAKE) {
     if ( $CONF{tagname} ) {
       printinfo("tagging with $outputfile");
@@ -4370,11 +4407,19 @@ sub draw_bezier {
     $IM->setThickness($thickness) if $thickness > 1;
     $line_color_obj = $COLORS->{$color};
   }
-  
-  for my $i ( 0 .. @$points - 2 ) {
-    $IM->line( @{ $points->[$i] }, @{ $points->[ $i + 1 ] }, $line_color_obj )
+
+  # todo - when a polyline is drawn, adjacent line
+  # segments overlap by 1px. When transparency is used, this
+  # creates a darker spot along the line, at beziersamples positions.
+  # fix this by drawing the line segments independently, and adjusting
+  # the end position of each segment
+
+  my $bezier_poly_line = GD::Polyline->new();
+  for my $i ( 0 .. @$points - 1 ) {
+    $bezier_poly_line->addPt(@{$points->[$i]});
   }
-  
+  my $spline = $bezier_poly_line->addControlPoints->toSpline;
+  $IM->polydraw($bezier_poly_line,$line_color_obj);
   # return thickness to 1px
   $IM->setThickness(1) if $thickness > 1;
 }
@@ -4462,7 +4507,8 @@ sub seek_parameter {
 	return $struct->{$str}
 	  if exists $struct->{$str} && defined $struct->{$str};
       } else {
-	croak "cannot extract parameter from this data structure";
+	printdumper(\@data_structs);
+	croak "cannot extract parameter from this data structure (shown above - report this please)";
       }
     }
   }
@@ -4482,19 +4528,17 @@ sub draw_highlights {
   for my $highlight_set ( make_list( $datasets->{dataset} ) ) {
     printsvg(qq{<g id="highlight$highlightid">}) if $SVG_MAKE;
     $highlightid++;
-
     for my $targetz ( @{ $datasets->{param}{zlist} } ) {
       next unless ref( $highlight_set->{data} ) eq "ARRAY";
       for my $data ( map { $_->{data}[0] } @{ $highlight_set->{data} } ) {
 	next unless $data->{data}{chr} eq $chr;
 	my $z = seek_parameter( "z", $data, $highlight_set, $datasets );
-	next unless defined $z && $z == $targetz;
-	my $dataset = Set::IntSpan->new(
-					sprintf(
-						"%d-%d", $data->{data}{start}, $data->{data}{end}
+	next unless defined ($z && $z == $targetz) || (! $z && ! $targetz);
+	my $dataset = Set::IntSpan->new(sprintf("%d-%d", 
+						$data->{data}{start}, 
+						$data->{data}{end}
 					       )
 				       );
-
 	next unless $set->intersect($dataset)->cardinality;
 
 	my $set = filter_data( $dataset, $chr );
@@ -4512,7 +4556,6 @@ sub draw_highlights {
 	      seek_parameter( $param, $data, $highlight_set,
 			      $datasets );
 	    $accept &&= $value == $test->{$param};
-
 	    #printinfo("testing",$param,"expect",$test->{$param},"got",$value,"pass",$accept);
 	  }
 	}
@@ -4521,8 +4564,7 @@ sub draw_highlights {
 
 	my ( $radius_from, $radius_to );
 	if (
-	    seek_parameter( "ideogram", $data, $highlight_set,
-			    $datasets )
+	    seek_parameter( "ideogram", $data, $highlight_set, $datasets )
 	    && !seek_parameter( "r0", $data, $highlight_set, $datasets )
 	    && !seek_parameter( "r1", $data, $highlight_set, $datasets )
 	   ) {
@@ -4546,9 +4588,10 @@ sub draw_highlights {
 				     getanglepos( $set_piece->max, $chr )
 				    );
 
-	  my $c = seek_parameter( "fill_color", $data, $highlight_set,
-				  $datasets );
-
+	  my $c = seek_parameter( "fill_color", $data, $highlight_set, $datasets);
+	  my $url = seek_parameter( "url", $data, $highlight_set, $datasets);
+	  $url = format_url(url=>$url,param_path=>[$data->{data}, 
+						   $data, $highlight_set, $datasets]);
 	  slice(
 		image       => $IM,
 		start       => $set_piece->min,
@@ -4568,12 +4611,7 @@ sub draw_highlights {
 					    "fill_color", $data, $highlight_set, $datasets
 					   ),
 		mapoptions => {
-			       object_type   => "highlight",
-			       object_parent => $chr,
-			       object_data   => {
-						 start => $set_piece->min,
-						 end   => $set_piece->max
-						},
+			       url => $url,
 			      },
 	       );
 	}
@@ -4582,6 +4620,35 @@ sub draw_highlights {
 
     printsvg(qq{</g>}) if $SVG_MAKE;
   }
+}
+
+sub format_url {
+  # given a url (although the function can be applied to any string)
+  # replace all instances of [PARAM] with the value of the parameter
+  # named PARAM extracted from the elements passed in the param_path
+  #
+  # e.g. format_url(url=>"www.domain.com/param=[ID]",param_path=>[$datum,$data]);
+  my %args = @_;
+  my $delim_left = "\Q[\E";
+  my $delim_right = "\Q]\E";
+  my $url = $args{url};
+  while($url =~ /$delim_left([^$delim_right$delim_left]+)$delim_right/g) {
+    my $param = $1;
+    my $value = seek_parameter($param,@{$args{param_path}});
+    printdebug("format_url",$url,$1,$value);
+    if(! defined $value) {
+      if ($CONF{image}{image_map_strict}) {
+	printdumper($args{param_path}[0]);
+	confess "You have tried to use the URL $url for an image map, but the parameter in the url [$param] has no value defined for this data point or data set.";
+      } else {
+	# there is no value for this parameter, so return an empty url
+	return undef
+      }
+    }
+    $url =~ s/$delim_left$param$delim_right/$value/g;
+  }
+  printdebug("format_url_done",$url);
+  return $url;
 }
 
 # -------------------------------------------------------------------
@@ -4881,6 +4948,7 @@ sub reform_chrorder_groups {
 
 # -------------------------------------------------------------------
 sub parse_parameters {
+
   # Given a configuration file node (e.g. highlights), parse
   # parameter values, filtering for only those parameters that
   # are accepted for this node type
@@ -4899,7 +4967,7 @@ sub parse_parameters {
   #
   # parse_parameters( $CONF{highlights}, "highlights" , 1, "param1",
   # "param2");
-
+  
   my $node       = shift;
   my $type       = shift;
   my $continue   = shift;
@@ -4907,6 +4975,8 @@ sub parse_parameters {
   my %param_list = (
 		    default => [ 
 				qw(
+				    url
+				    id
 				    record_limit perturb z show hide axis axis_color 
 				    axis_thickness axis_spacing background background_color 
 				    background_stroke_color background_stroke_thickness 
@@ -4932,7 +5002,7 @@ sub parse_parameters {
 				  qw(
 				      angle_shift layers_overflow connector_dims extend_bin
 				      label_rotate value scale_log_base layers_overflow_color
-				      offset id padding rpadding thickness layers margin max_gap
+				      offset padding rpadding thickness layers margin max_gap
 				      fill_color color thickness stroke_color stroke_thickness
 				      orientation thickness r0 r1 glyph glyph_size min max
 				      stroke_color stroke_thickness fill_under break_line_distance
@@ -5548,6 +5618,7 @@ sub read_data_file {
   while (<F>) {
     chomp;
     next if /^\s*#/;
+    next if /^\s*$/;
     my @tok   = $CONF{file_delim} ? split($CONF{file_delim}) : split;
     my $datum = {};
     my $fail;
@@ -5563,8 +5634,15 @@ sub read_data_file {
       }
 
       if ( $field eq "options" ) {
-	my $params =
-	  parse_parameters( { split( /[=,]/, $value ) }, $type );
+	my @params = split(/,/,$value);
+	my %params;
+	for my $param ( @params ) {
+	  #printinfo("paraminfo",$param);
+	  if($param =~ /^([^=]+)=(.+)$/) {
+	    $params{$1} = $2;
+	  }
+	}
+	my $params = parse_parameters( \%params, $type );
 	$datum->{param} = $params if $params;
       } else {
 	$datum->{data}{$field} = $value;
@@ -5715,7 +5793,7 @@ sub read_data_file {
 	    my $cumulsum  = sum( @values_sorted[ 0 .. $i ] );
 	    my $thisdatum = dclone($datum);
 
-	    printdumper($thisdatum);
+	    #printdumper($thisdatum);
 
 	    $thisdatum->{data}{value} = $cumulsum;
 	    $thisdatum->{param}{z}    = $z;
@@ -5806,7 +5884,6 @@ sub draw_ticks {
 
   if ( $chrs_for_ticks{$chr} ) {
     #printinfo("drawing ticks on",$chr);
-    ;
   } else {
     printinfo( "supressing ticks on", $chr );
     return;
@@ -5814,7 +5891,6 @@ sub draw_ticks {
 
   my @requested_ticks = make_list( $CONF{ticks}{tick} );
 
-  #
   # parse and fill data structure for each tick level - process
   # units on grids and spacing (do this now rather than later when
   # ticks are drawn)
@@ -5841,11 +5917,8 @@ sub draw_ticks {
   # ticks with relative spacing have had their spacing already
   # defined (rspacing*ideogram_size)
   # by process_tick_structure()
-  for my $tickdata ( 
-		    sort { $b->{spacing} <=> $a->{spacing} } @requested_ticks 
-		   ) {
+  for my $tickdata ( sort { $b->{spacing} <=> $a->{spacing} } @requested_ticks ) {
     next unless show_element($tickdata);
-
     for my $tick_radius ( @{ $tickdata->{_radius} } ) {
       printinfo(
                 "drawing ticks",
@@ -5920,6 +5993,7 @@ sub draw_ticks {
       # go through every position and draw the tick
       for my $mb_pos (@mb_pos) {
 	my $pos = $mb_pos;
+	my $do_not_draw;
 	if ( 
 	    !seek_parameter( "force_display", $tickdata, $CONF{ticks} )
 	   ) {
@@ -5936,7 +6010,13 @@ sub draw_ticks {
 	  # different for these ticks, or if a mixture of
 	  # relative/absolute spacing/labeling is being used.
 	  #
-	  next if $pos_ticked{$tick_radius}{$pos}++;
+	  # The only exception to this is when a tick is used to define
+	  # an image map. In this case, the process plays out but the
+	  # actual tick is not drawn (but the loop is used to generate
+	  # the image map element).
+	  $do_not_draw = $pos_ticked{$tick_radius}{$pos}++;
+	  next if $do_not_draw && ! $tickdata->{show_map}
+	  #next if $pos_ticked{$tick_radius}{$pos}++;
 	}
 
 	#
@@ -6090,6 +6170,7 @@ sub draw_ticks {
 	}
 
 	push @ticks, {
+		      do_not_draw => $do_not_draw,
 		      tickdata    => $tickdata,
 		      r0          => $r0,
 		      r1          => $r1,
@@ -6282,7 +6363,7 @@ sub draw_ticks {
 	    }
 	  }
 
-	  if ($draw_label) {
+	  if ($draw_label && ! $do_not_draw) {
 	    my $label_offset;
 	    if ( my $offset =
 		 seek_parameter( "label_offset", $CONF{ticks} ) 
@@ -6372,7 +6453,6 @@ sub draw_ticks {
 					      ],
 				     svgangle => textanglesvg($tick_angle),
 				     text     => $tick_label,
-				     imagemap => $CONF{imagemap},
 				     chr      => $chr,
 				     start    => $pos,
 				     end      => $pos,
@@ -6408,76 +6488,115 @@ sub draw_ticks {
   }
 
   my ($first_label_idx) = grep( $ticks[$_]{labeldata}, ( 0 .. @ticks - 1 ) );
-  my ($last_label_idx) =
-    grep( $ticks[$_]{labeldata}, reverse( 0 .. @ticks - 1 ) );
-  for my $tick_idx ( 
-		    sort { $ticks[$a]{pos} <=> $ticks[$b]{pos} }
-		    ( 0 .. @ticks - 1 ) 
-		   ) {
-    next if $tick_idx == $first_label_idx && $CONF{ticks}{skip_first_label};
-    next if $tick_idx == $last_label_idx  && $CONF{ticks}{skip_last_label};
+  my ($last_label_idx)  = grep( $ticks[$_]{labeldata}, reverse( 0 .. @ticks - 1 ) );
+  my @tick_idx = sort { $ticks[$a]{pos} <=> $ticks[$b]{pos} } ( 0 .. @ticks - 1 );
+  my @tick_idx_map = grep( $ticks[$_]{tickdata}{show_map}, @tick_idx);
+  #printinfo(@tick_idx_map);
+  # create image map regions
+  for my $tick_idx ( @tick_idx_map ) {
+    my $tick     = $ticks[$tick_idx];
+    my $tickdata = $tick->{tickdata};
+    #printinfo($tick->{pos});
+    if($tickdata->{show_map}) {
+      my @pos_pairs;
+      if($tick_idx == $tick_idx_map[0]) {
+	# this is the first tick - check to extend the
+	# map element back to the start of the ideogram if this
+	# tick is not at the start of the ideogram
+	if($tick->{pos} > $ideogram->{set}->min) {
+	  my $pos = $tick->{pos};
+	  my $prev_pos = $ideogram->{set}->min;
+	  push @pos_pairs,[$prev_pos,$pos];
+	}
+      } else {
+	my $prev_tick = $ticks[$tick_idx-1];
+  	my $pos = $tick->{pos};
+	my $prev_pos = $prev_tick->{pos};
+	push @pos_pairs,[$prev_pos,$pos];
+      }
+      if($tick_idx == @tick_idx_map[-1]) {
+	if($tick->{pos} < $ideogram->{set}->max) {
+	  my $prev_pos = $tick->{pos};
+	  my $pos = $ideogram->{set}->max;
+	  push @pos_pairs, [$prev_pos,$pos];
+	}
+      }
+      for my $pos_pair (@pos_pairs) {
+	my ($prev_pos,$pos) = @$pos_pair;
+	my $url = seek_parameter("url",$tickdata,$CONF{ticks});
+	$url = format_url(url=>$url,param_path=>[$tickdata,
+						 $tick,
+						 {start=>$prev_pos,
+						  end=>$pos},
+						]);
+	my ($r0,$r1);
+	if($tickdata->{map_radius_inner}) {
+	  $r0 = unit_parse($tickdata->{map_radius_inner},$ideogram);
+	} else {
+	  $r0 = $tick->{r0};
+	}
+	if($tickdata->{map_radius_outer}) {
+	  $r1 = unit_parse($tickdata->{map_radius_outer},$ideogram);
+	} elsif($tickdata->{map_size}) {
+	  my $map_size = unit_strip(unit_validate(seek_parameter("map_size", $tickdata, $CONF{ticks}),
+						  "ticks/tick/map_size","p"
+						 )
+				   );
+	  $r1 = $r0 + $map_size;
+	} else {
+	  $r1 = $r0 + $tick->{size};
+	}
+	#printinfo("tickmap",$r0,$r1);
+	slice(
+	      image       => $IM,
+	      start       => $prev_pos,
+	      end         => $pos,
+	      chr         => $chr,
+	      radius_from => $r0,
+	      radius_to   => $r1,
+	      edgecolor   => undef,
+	      edgestroke  => undef,
+	      fillcolor   => undef,
+	      mapoptions => { url=>$url },
+	     );
+      }
+    }
+  }
+
+  # draw the ticks
+  for my $tick_idx ( @tick_idx ) {
 
     my $tick     = $ticks[$tick_idx];
     my $tickdata = $tick->{tickdata};
 
+    next if $tick->{do_not_draw};
+    next if $tick_idx == $first_label_idx && $CONF{ticks}{skip_first_label};
+    next if $tick_idx == $last_label_idx  && $CONF{ticks}{skip_last_label};
+    
     draw_line(
 	      $tick->{coordinates},
 	      $DIMS->{tick}{ $tickdata->{dims_key} }{thickness} || 1,
 	      seek_parameter( "color", $tickdata, $CONF{ticks} ),
-	      {
-	       object_type   => "tick",
-	       object_parent => $chr,
-	       object_label  => $tick->{labeldata}
-	       ? $tick->{labeldata}{text}
-	       : undef,
-	       object_data => {
-			       start => $tick->{pos},
-			       end   => $tick->{pos}
-			      },
-	       loc => {
-		       r0 => $tick->{r0},
-		       r1 => $tick->{r1},
-		       a1 => $tick->{a},
-		       a2 => $tick->{a}
-		      },
-	      },
 	     );
 
     if ( $tick->{labeldata} ) {
       draw_text(
                 image => $IM,
                 %{ $tick->{labeldata} },
-                mapoptions => {
-			       object_type  => "ticklabel",
-			       object_label => $KARYOTYPE->{$chr}{chr}{label}
-			      }
+                mapoptions => {}
 	       );
     }
 
     if ( $tick->{griddata} ) {
       draw_line(
                 $tick->{griddata}{coordinates},
-                seek_parameter(
-			       "grid_thickness", $tickdata, $CONF{ticks}, \%CONF
-			      ),
+                seek_parameter("grid_thickness", $tickdata, $CONF{ticks}, \%CONF ),
                 seek_parameter( "grid_color", $tickdata, $CONF{ticks}, \%CONF )
 		|| seek_parameter( "color", $tickdata, $CONF{ticks} ),
-                {
-		 object_type   => "grid",
-		 object_parent => $chr,
-		 object_data   => {
-				   start => $tick->{pos},
-				   end   => $tick->{pos}
-				  },
-		 loc => {
-			 r0 => $tick->{griddata}{r0},
-			 r1 => $tick->{griddata}{r1},
-			 a1 => $tick->{a},
-			 a2 => $tick->{a}
-			},
-                },
 	       );
     }
+
+
   }
 }
 
@@ -6957,15 +7076,17 @@ sub create_ideogram_set {
 	      "reserved keyword";
 	}
 
-	push @IDEOGRAMS, {
-			  chr       => $chr->{chr},
-			  chrlength => $KARYOTYPE->{ $chr->{chr} }{chr}{size},
-			  label     => $KARYOTYPE->{ $chr->{chr} }{chr}{label},
-			  scale     => 1,
-			  tag       => $chr->{tag},
-			  idx       => int(@IDEOGRAMS),
-			  set       => $set
-			 };
+	my $ideogram = {
+			chr       => $chr->{chr},
+			chrlength => $KARYOTYPE->{ $chr->{chr} }{chr}{size},
+			label     => $KARYOTYPE->{ $chr->{chr} }{chr}{label},
+			param     => $KARYOTYPE->{ $chr->{chr} }{chr}{options},
+			scale     => 1,
+			tag       => $chr->{tag},
+			idx       => int(@IDEOGRAMS),
+			set       => $set
+		       };
+	push @IDEOGRAMS, $ideogram;
       }
     }
   }
@@ -7211,7 +7332,6 @@ sub draw_text {
             chr           => 1,
             start         => 1,
             end           => 1,
-            imagemap      => 0,
             mapoptions    => { type => HASHREF, optional => 1 },
 	   }
 	  );
@@ -7251,13 +7371,25 @@ sub draw_text {
     printsvg($svg);
   }
 
-  $IM->stringFT(
-		$COLORS->{ $params{color} },
-		@params{qw(font size)},
-		$params{angle} + $params{forcerotation} * $DEG2RAD,
-		@{ $params{xy} },
-		$params{text}
-	       ) if $PNG_MAKE;
+  @bounds = $IM->stringFT(
+			  $COLORS->{ $params{color} },
+			  @params{qw(font size)},
+			  $params{angle} + $params{forcerotation} * $DEG2RAD,
+			  @{ $params{xy} },
+			  $params{text}
+			 ) if $PNG_MAKE;
+
+  # contribute to image map
+  if(defined $params{mapoptions}{url}) {
+    my $xshift = $CONF{image}{image_map_xshift}||0;
+    my $yshift = $CONF{image}{image_map_xshift}||0;
+    my $xmult  = $CONF{image}{image_map_xfactor}||1;
+    my $ymult  = $CONF{image}{image_map_yfactor}||1;
+    my @coords = map { ( $bounds[2*$_]*$xmult + $xshift , $bounds[2*$_+1]*$ymult + $yshift ) } (0..3);
+    report_image_map(shape=>"poly",
+		     coords=>\@coords,
+		     href=>$params{mapoptions}{url});
+  }
 }
 
 # -------------------------------------------------------------------
@@ -7689,7 +7821,6 @@ sub ribbon {
             edgecolor                    => 1,
             edgestroke                   => 1,
             fillcolor                    => 0,
-            imagemap                     => 0,
             bezier_radius                => 0,
             perturb_bezier_radius        => 0,
             bezier_radius_purity         => 0,
@@ -7888,7 +8019,7 @@ sub ribbon {
     }
 
     if ( defined $params{fillcolor} ) {
-      $IM->filledPolygon( $poly, $COLORS->{ $params{fillcolor} } );
+      $IM->filledPolygon( $poly, aa_color($params{fillcolor},$IM,$COLORS) );
     }
 
     # stroke the polygon, if required
@@ -7908,12 +8039,23 @@ sub ribbon {
       $IM->polygon( $poly, $line_color_obj );
       $IM->setThickness(1) if $thickness > 1;
     }
+
+    # contribute to image map
+    if(defined $params{mapoptions}{url}) {
+      my $xshift = $CONF{image}{image_map_xshift}||0;
+      my $yshift = $CONF{image}{image_map_xshift}||0;
+      my $xmult  = $CONF{image}{image_map_xfactor}||1;
+      my $ymult  = $CONF{image}{image_map_yfactor}||1;
+      my @coords = map { ( $_->[0]*$xmult + $xshift , $_->[1]*$ymult + $yshift ) } $poly->vertices;
+      report_image_map(shape=>"poly",
+		       coords=>\@coords,
+		       href=>$params{mapoptions}{url});
+    }
   }
 }
 
 {
   my $sliceid = 0;
-
   # -------------------------------------------------------------------
   sub slice {
     validate(
@@ -7930,13 +8072,20 @@ sub ribbon {
 	      edgecolor    => 1,
 	      edgestroke   => 1,
 	      fillcolor    => 0,
-	      imagemap     => 0,
 	      ideogram     => 0,
 	      mapoptions => { type => HASHREF, optional => 1 },
 	     }
 	    );
     my %params = @_;
 
+    # determine whether to draw this slice, or whether it is only being
+    # used to define an image map element. A slice that appears in the image
+    # must have one of edge color, edge stroke or fill color defined.
+    my $draw_slice = 
+      defined $params{edgecolor} || 
+	defined $params{edgestroke} ||
+	  defined $params{fillcolor};
+    
     my ( $start_a, $end_a ) = (
 			       getanglepos( $params{start}, $params{chr} ),
 			       getanglepos( $params{end},   $params{chr} )
@@ -8048,7 +8197,7 @@ sub ribbon {
 		    );
     }
 
-    printsvg($svg);
+    printsvg($svg) if $draw_slice;
 
     my $poly;
     if ( $params{radius_from} != $params{radius_to} ) {
@@ -8092,7 +8241,8 @@ sub ribbon {
     }
 
     # fill the polygon if desired
-    if ( defined $params{fillcolor}
+    if ( $draw_slice
+	 && defined $params{fillcolor}
 	 && ref $poly eq "GD::Polygon"
 	 && $PNG_MAKE
        ) {
@@ -8101,7 +8251,7 @@ sub ribbon {
     }
 
     # stroke the polygon
-    if ( $params{edgestroke} ) {
+    if ( $draw_slice && $params{edgestroke} ) {
       my $thickness = $params{edgestroke};
       my $color     = $params{edgecolor} || $params{fillcolor};
       my $line_color_obj;
@@ -8121,9 +8271,43 @@ sub ribbon {
       }
       $IM->setThickness(1) if $thickness > 1;
     }
-
     $sliceid++;
+
+    # contribute to image map
+    if(defined $params{mapoptions}{url}) {
+      my $xshift = $CONF{image}{image_map_xshift}||0;
+      my $yshift = $CONF{image}{image_map_xshift}||0;
+      my $xmult  = $CONF{image}{image_map_xfactor}||1;
+      my $ymult  = $CONF{image}{image_map_yfactor}||1;
+      my @coords = map { ( $_->[0]*$xmult + $xshift , $_->[1]*$ymult + $yshift ) } $poly->vertices;
+      report_image_map(shape=>"poly",
+		       coords=>\@coords,
+		       href=>$params{mapoptions}{url});
+    }
   }
+}
+
+sub report_image_map {
+  # given a shape, coordinates (as a list) and an href string, report
+  # an element of the image map
+  my %args = @_;
+  my $href = $args{href};
+  if($href =~ /^[^\/]+\/\//) {
+    # protocol found
+  } elsif(defined $CONF{image}{image_map_protocol}) {
+    # prefix the url with the protocol, if defined
+    $href = sprintf("%s://%s",$CONF{image}{image_map_protocol},$href);
+  }
+  my $map_string = sprintf ("<area shape='%s' coords='%s' href='%s' alt='%s' title='%s'>\n",
+			    $args{shape},
+			    join(",",map {round($_)} @{$args{coords}}),
+			    $href,
+			    $href,
+			    $href,
+			   );
+  push @MAP_ELEMENTS, {string=>$map_string,
+		       type=>$args{shape},
+		       coords=>$args{coords}};
 }
 
 # -------------------------------------------------------------------
@@ -8455,14 +8639,20 @@ sub parse_options {
   my $string = $params{string} || $EMPTY_STR;
   my $options;
 
-  for my $option_pair ( split( /,/, $string ) ) {
-    my ( $option, $value ) = split( /=/, $option_pair );
-
-    if ( defined $option && defined $value ) {
-      $options->{$option} = $value;
+  my @option_pairs = split(/,/,$string);
+  for my $option_pair ( @option_pairs ) {
+    if($option_pair =~ /^([^=]+)=(.+)$/) {
+      $options->{$1} = $2;
     }
   }
 
+  #for my $option_pair ( split( /,/, $string ) ) {
+  #  my ( $option, $value ) = split( /=/, $option_pair );
+  #  if ( defined $option && defined $value ) {
+  #    $options->{$option} = $value;
+  #  }
+  #}
+  
   return $options;
 }
 
@@ -8488,7 +8678,6 @@ sub read_karyotype {
       confess "fatal error - start/end coordinates in karyotype ",
 	"are not digits ($start,$end)";
     }
-
     if ( $end <= $start ) {
       confess "fatal error - end coordinate in karyotype is ",
 	"same or lower than start ($start,$end)"
@@ -8506,7 +8695,6 @@ sub read_karyotype {
 		color   => lc $color,
 		options => parse_options( string => $options )
 	       };
-
     if ( $field =~ /chr/ ) {
       $data->{chr}           = $name;
       $data->{scale}         = 1;
@@ -8712,6 +8900,10 @@ sub validateconfiguration {
     confess "Error: no karotype file specified";
   }
 
+  $CONF{image}{image_map_name} ||= $CONF{image_map_name};
+  $CONF{image}{image_map_use}  ||= $CONF{image_map_use};
+  $CONF{image}{image_map_file} ||= $CONF{image_map_file};
+  $CONF{image}{image_map_strict} ||= $CONF{image_map_strict};
   $CONF{image}{"24bit"} ||= $CONF{"24bit"};
   $CONF{image}{png}   ||= $CONF{png};
   $CONF{image}{svg}   ||= $CONF{svg};
@@ -8821,59 +9013,6 @@ sub loadconfiguration {
 # -------------------------------------------------------------------
 sub printsvg {
   print SVG @_, "\n" if $SVG_MAKE;
-}
-
-# -------------------------------------------------------------------
-sub printmap {
-  return unless $CONF{imagemap};
-  my %params = validate(
-			@_,
-			{
-			 primitive    => 1,
-			 subprimitive => { default => $DASH },
-			 label        => { default => $DASH },
-			 sublabel     => { default => $DASH },
-			 parent       => { default => $DASH },
-			 xy           => { type => ARRAYREF },
-			 loc          => { type => HASHREF },
-			 data         => { type => HASHREF, optional => 1 },
-			 params       => { type => HASHREF, optional => 1 },
-			}
-		       );
-
-  # format the loc positions
-  my $precision = 3;
-  for ( values %{ $params{loc} } ) {
-    $_ = sprintf( "%.${precision}f", $_ ) if $_ =~ /\.\d{$precision,}/;
-  }
-  my @data;
-  for my $group (qw(loc params data)) {
-    for my $param ( sort keys %{ $params{$group} } ) {
-      next unless exists $params{$group}{$param};
-      my $value = $params{$group}{$param};
-      if ( $param =~ /color/ ) {
-	$value = $CONF{colors}{$value};
-      }
-      push @data, [ $param, $value ];
-    }
-  }
-
-  my $vertices = join( $SEMICOLON, 
-		       map { join( $COMMA, @$_ ) } @{ $params{xy} } 
-		     );
-
-  my $supplement_info;
-  if ( $CONF{verbose} ) {
-    $supplement_info = join( $SPACE, "vertices=$vertices" );
-  }
-
-  printinfo(
-	    "imagemap",
-	    @params{qw(primitive subprimitive parent label sublabel)},
-	    ( map { join( $EQUAL_SIGN, @$_ ) } @data ),
-	    $supplement_info,
-	   );
-
 }
 
 # -------------------------------------------------------------------

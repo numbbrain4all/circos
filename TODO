@@ -19,6 +19,5 @@ IMPROVEMENTS
 
 BUGS
 
-++ users without TTF support for GD get a nasty Set::IntSpan error (because GD reports a 0-size label) - add sanity check for TTF support
 ++ verify that pairwise tag in the ideogram spacing blocks works - I've been having problems
 
