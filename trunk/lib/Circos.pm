@@ -43,7 +43,7 @@ Version 0.50.
 
 use strict;
 #use warnings;
-use Carp qw( confess croak );
+use Carp qw( carp confess croak );
 use Config::General;
 use Data::Dumper;
 use File::Basename;
@@ -804,8 +804,9 @@ or a hashref of the configuration options.
 		     $band->{color}, $CONF{ideogram}{band_transparency} )
 	    : $band->{color};
 
+      #printdumper($band) if $band->{name} eq "p31.1" && $band->{chr} eq "hs1";
       my $url = seek_parameter("url",$band) || $CONF{ideogram}{band_url};
-      $url = format_url(url=>$url,param_path=>[$band]);
+      $url = format_url(url=>$url,param_path=>[$band->{options}||{},$band]);
 
       slice(
 	    image       => $IM,
@@ -1247,7 +1248,14 @@ or a hashref of the configuration options.
 	    #printdumper($link->{data});
 	    my $url = seek_parameter("url",@i_link_param_path);
 	    $url = format_url(url=>$url,param_path=>[@i_link_param_path,
-						    {start=>round(($start1+$end1)/2),
+						    {
+						     start1=>$start1,
+						     start2=>$start2,
+						     end1=>$end1,
+						     end2=>$end2,
+						     size1=>$end1-$start1,
+						     size2=>$end2-$start2,
+						     start=>round(($start1+$end1)/2),
 						     end=>round(($start2+$end2)/2)}]);;
 	    #printinfo("ribbon",$url);
 	    ribbon(
@@ -3005,7 +3013,7 @@ or a hashref of the configuration options.
 		? 0
 		  : $DEG2RAD * textangle( $data_point->{angle_new} );
 
-	  printinfo( "drawing label",
+	  0&&printinfo( "drawing label",
 		     $data_point->{label},
 		     $datum->{data}[0]{param}{label_size} );
 
@@ -3201,7 +3209,7 @@ or a hashref of the configuration options.
 		  my $yshift = $CONF{image}{image_map_xshift}||0;
 		  my $xmult  = $CONF{image}{image_map_xfactor}||1;
 		  my $ymult  = $CONF{image}{image_map_yfactor}||1;
-		  my @coords = ($x*$xmult + $xshift , $y*$ymult + $yshift, $r);
+		  my @coords = ($x*$xmult + $xshift , $y*$ymult + $yshift, $r*$xmult);
 		  report_image_map(shape=>"circle",
 				   coords=>\@coords,
 				   href=>$url);
@@ -4047,13 +4055,23 @@ or a hashref of the configuration options.
 		     aa_color($CONF{image}{image_map_overlay_fill_color},$IM,$COLORS)
 		    );
 	  }
+	  my $color_obj;
+	  if($CONF{image}{image_map_overlay_stroke_thickness}) {
+	    $IM->setThickness($CONF{image}{image_map_overlay_stroke_thickness});
+	    $color_obj = $COLORS->{$CONF{image}{image_map_overlay_stroke_color}};
+	  } else {
+	    $color_obj = aa_color($CONF{image}{image_map_overlay_stroke_color},$IM,$COLORS);
+	  }
 	  if($CONF{image}{image_map_overlay_stroke_color}) {
 	    $IM->arc(
 		     @coords,
 		     $coords[2],
 		     0, 360,
-		     aa_color($CONF{image}{image_map_overlay_stroke_color},$IM,$COLORS)
+		     $color_obj,
 		    );
+	  }
+	  if($CONF{image}{image_map_overlay_stroke_thickness}) {
+	    $IM->setThickness(1);
 	  }
 	} else {
 	  while(my ($x,$y) = splice(@coords,0,2)) {
@@ -4063,9 +4081,18 @@ or a hashref of the configuration options.
 	    $IM->filledPolygon($poly,
 			       aa_color($CONF{image}{image_map_overlay_fill_color},$IM,$COLORS));
 	  }
+	  my $color_obj;
+	  if($CONF{image}{image_map_overlay_stroke_thickness}) {
+	    $IM->setThickness($CONF{image}{image_map_overlay_stroke_thickness});
+	    $color_obj = $COLORS->{$CONF{image}{image_map_overlay_stroke_color}};
+	  } else {
+	    $color_obj = aa_color($CONF{image}{image_map_overlay_stroke_color},$IM,$COLORS);
+	  }
 	  if($CONF{image}{image_map_overlay_stroke_color}) {
-	    print $IM->polygon($poly,
-			       aa_color($CONF{image}{image_map_overlay_stroke_color},$IM,$COLORS));
+	    print $IM->polygon($poly,$color_obj);
+	  }
+	  if($CONF{image}{image_map_overlay_stroke_thickness}) {
+	    $IM->setThickness(1);
 	  }
 	}
       }
@@ -4637,15 +4664,23 @@ sub format_url {
     my $value = seek_parameter($param,@{$args{param_path}});
     printdebug("format_url",$url,$1,$value);
     if(! defined $value) {
-      if ($CONF{image}{image_map_strict}) {
+      if ($CONF{image}{image_map_missing_parameter} eq "exit") {
 	printdumper($args{param_path}[0]);
-	confess "You have tried to use the URL $url for an image map, but the parameter in the url [$param] has no value defined for this data point or data set.";
-      } else {
+	confess "You have tried to use the URL $url for an image map, but the parameter in the url [$param] has no value defined for this data point or data set. To make this error go away, either (a) define the parameter, (b) set image_map_missing_parameter=blank to remove the undefined parameter from the image element, or (c) set image_map_missing_parameter=removeurl to remove the URL from the image element.";
+      } elsif ($CONF{image}{image_map_missing_parameter} =~ /removeurl/) {
 	# there is no value for this parameter, so return an empty url
-	return undef
+	return undef;
+      } elsif ($CONF{image}{image_map_missing_parameter} =~ /removeparam/) {
+	carp "You have tried to use the URL $url for an image map, but the parameter in the url [$param] has no value defined for this data point or data set. This parameter is being removed from the URL of this element. Use the image_map_missing_parameter setting in the <image> block to adjust this behaviour.";
+	$url =~ s/$delim_left$param$delim_right//g;
+      } else {
+	# not defined - removeparam by default
+	carp "You have tried to use the URL $url for an image map, but the parameter in the url [$param] has no value defined for this data point or data set. This parameter is being removed from the URL of this element. Use the image_map_missing_parameter setting in the <image> block to adjust this behaviour.";
+	$url =~ s/$delim_left$param$delim_right//g;
       }
+    } else {
+      $url =~ s/$delim_left$param$delim_right/$value/g;
     }
-    $url =~ s/$delim_left$param$delim_right/$value/g;
   }
   printdebug("format_url_done",$url);
   return $url;
@@ -6015,7 +6050,7 @@ sub draw_ticks {
 	  # actual tick is not drawn (but the loop is used to generate
 	  # the image map element).
 	  $do_not_draw = $pos_ticked{$tick_radius}{$pos}++;
-	  next if $do_not_draw && ! $tickdata->{show_map}
+	  next if $do_not_draw && ! $tickdata->{url}
 	  #next if $pos_ticked{$tick_radius}{$pos}++;
 	}
 
@@ -6490,23 +6525,39 @@ sub draw_ticks {
   my ($first_label_idx) = grep( $ticks[$_]{labeldata}, ( 0 .. @ticks - 1 ) );
   my ($last_label_idx)  = grep( $ticks[$_]{labeldata}, reverse( 0 .. @ticks - 1 ) );
   my @tick_idx = sort { $ticks[$a]{pos} <=> $ticks[$b]{pos} } ( 0 .. @ticks - 1 );
-  my @tick_idx_map = grep( $ticks[$_]{tickdata}{show_map}, @tick_idx);
-  #printinfo(@tick_idx_map);
+
+  # group url-ticks by r0
+
+  my $tick_idx_map = {};
+  for my $tick_idx (@tick_idx) {
+    my $tick = $ticks[$tick_idx];
+    if($tick->{tickdata}{url}) {
+      my $r0 = $tick->{r0}; 
+      my $spacing = $tick->{tickdata}{spacing};
+      push @{$tick_idx_map->{ $r0 }{$spacing}}, $tick_idx;
+    }
+  }
+  
   # create image map regions
-  for my $tick_idx ( @tick_idx_map ) {
-    my $tick     = $ticks[$tick_idx];
-    my $tickdata = $tick->{tickdata};
-    #printinfo($tick->{pos});
-    if($tickdata->{show_map}) {
-      my @pos_pairs;
-      if($tick_idx == $tick_idx_map[0]) {
-	# this is the first tick - check to extend the
-	# map element back to the start of the ideogram if this
-	# tick is not at the start of the ideogram
-	if($tick->{pos} > $ideogram->{set}->min) {
-	  my $pos = $tick->{pos};
-	  my $prev_pos = $ideogram->{set}->min;
-	  push @pos_pairs,[$prev_pos,$pos];
+
+  for my $tick_r0 (sort {$a <=> $b} keys %$tick_idx_map) {
+    for my $tick_spacing (sort {$a <=> $b} keys %{$tick_idx_map->{$tick_r0}}) {
+      my @tick_idx_map = @{$tick_idx_map->{$tick_r0}{$tick_spacing}};
+    for my $tick_idx ( @tick_idx_map ) {
+      my $tick     = $ticks[$tick_idx];
+      next unless $tick->{r0} == $tick_r0;
+      my $tickdata = $tick->{tickdata};
+      #printinfo($tick->{pos});
+      if($tickdata->{url}) {
+	my @pos_pairs;
+	if($tick_idx == $tick_idx_map[0]) {
+	  # this is the first tick - check to extend the
+	  # map element back to the start of the ideogram if this
+	  # tick is not at the start of the ideogram
+	  if($tick->{pos} > $ideogram->{set}->min) {
+	    my $pos = $tick->{pos};
+	    my $prev_pos = $ideogram->{set}->min;
+	    push @pos_pairs,[$prev_pos,$pos];
 	}
       } else {
 	my $prev_tick = $ticks[$tick_idx-1];
@@ -6544,7 +6595,7 @@ sub draw_ticks {
 				   );
 	  $r1 = $r0 + $map_size;
 	} else {
-	  $r1 = $r0 + $tick->{size};
+	  $r1 = $tick->{r1};
 	}
 	#printinfo("tickmap",$r0,$r1);
 	slice(
@@ -6562,6 +6613,8 @@ sub draw_ticks {
       }
     }
   }
+  }
+  }
 
   # draw the ticks
   for my $tick_idx ( @tick_idx ) {
@@ -6572,7 +6625,7 @@ sub draw_ticks {
     next if $tick->{do_not_draw};
     next if $tick_idx == $first_label_idx && $CONF{ticks}{skip_first_label};
     next if $tick_idx == $last_label_idx  && $CONF{ticks}{skip_last_label};
-    
+
     draw_line(
 	      $tick->{coordinates},
 	      $DIMS->{tick}{ $tickdata->{dims_key} }{thickness} || 1,
@@ -8903,7 +8956,7 @@ sub validateconfiguration {
   $CONF{image}{image_map_name} ||= $CONF{image_map_name};
   $CONF{image}{image_map_use}  ||= $CONF{image_map_use};
   $CONF{image}{image_map_file} ||= $CONF{image_map_file};
-  $CONF{image}{image_map_strict} ||= $CONF{image_map_strict};
+  $CONF{image}{image_map_missing_parameter} ||= $CONF{image_map_missing_parameter};
   $CONF{image}{"24bit"} ||= $CONF{"24bit"};
   $CONF{image}{png}   ||= $CONF{png};
   $CONF{image}{svg}   ||= $CONF{svg};
@@ -9048,11 +9101,15 @@ sub printout {
 
 Martin Krzywinski E<lt>martink at bcgsc.caE<gt>.
 
+=head1 CONTRIBUTORS
+
+Ken Youens-Clark E<lt>kyclark@gmail.comE<gt>
+
 =head1 BUGS
 
 Please report any bugs or feature requests to C<bug-circos at
 rt.cpan.org>, or through the web interface at
-L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Circos>.  I will be
+L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Circos>. I will be
 notified, and then you'll automatically be notified of progress on
 your bug as I make changes.
 
