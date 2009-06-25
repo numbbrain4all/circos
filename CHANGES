@@ -222,7 +222,7 @@ Fixed error that caused ends of ribbons to be drawn as straight lines.
 
 Fixed error that caused highlights to be drawn on top of the grid in certain cases.
 
-v0.50
+26 Jun 2009 v0.50
 
 Added file_delim to allow any field delimiter to be used in input files (e.g. a tab).
 
@@ -232,4 +232,7 @@ Added antialiasing to lines and polygins. Limitations in gd prevent antialiasing
 
 Fixed bug with parameter parsing that was using = as a delimiter.
 
-Added image maps (via the url parameter) to ideograms, bands, ticks, highlights, tiles, ribbons, text, scatter plots, histograms and heat maps.
+Added image maps (via the url parameter) to ideograms, bands, ticks, highlights, tiles, ribbons, text, scatter plots, histograms and heat maps. This is described in Tutorial 10.
+
+Backend implementation has been adjusted, with Circos code moved to Circos.pm module (credit goes to Ken Youens-Clark (CSHL)).
+

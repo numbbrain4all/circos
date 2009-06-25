@@ -64,7 +64,7 @@ GetOptions(\%OPT,
 	   'image_map_name=s',
 	   'image_map_file=s',
 	   'image_map_use',
-	   'image_map_strict',
+	   'image_map_missing_parameter',
 	   'configfile=s',
 	   'help',
 	   'man',
@@ -84,6 +84,10 @@ Circos->run(%OPT);
 =head1 AUTHOR
 
 Martin Krzywinski E<lt>martink@bcgsc.caE<gt>
+
+=head1 CONTRIBUTORS
+
+Ken Youens-Clark E<lt>kyclark@gmail.comE<gt>
 
 =head1 SEE ALSO
 
