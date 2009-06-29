@@ -1,6 +1,6 @@
 package Circos;
 
-our $VERSION = '0.50';
+our $VERSION = '0.51';
 
 =pod
 
@@ -152,7 +152,7 @@ or a hashref of the configuration options.
   $PNG_MAKE = 1 if !$SVG_MAKE && !$PNG_MAKE;
 
   my $outputfile_map;
-  if ( $CONF{image}{image_map_use} || ! defined $CONF{image_map_use} ) {
+  if ( $CONF{image}{image_map_use} ) {
     $outputfile_map = $CONF{image}{image_map_file} || "$outputfile.html";
     if($outputfile_map !~ /\//) {
       $outputfile_map = sprintf("%s/%s",
@@ -5895,48 +5895,49 @@ sub draw_ticks {
   my $tick_label_cover = $args{'tick_label_cover'};
   my $chr              = $ideogram->{chr};
 
-  ################################################################
-  # v0.47
-  # suppress ticks on on select ideograms
-  # - this works just like for display of ideograms themselves
-  my %chrs_for_ticks;
-  if ( seek_parameter( "chromosomes_display_default", $CONF{ticks} )
-       || !
-       defined seek_parameter( "chromosomes_display_default", $CONF{ticks} ) ) {
-    $chrs_for_ticks{$chr}++;
-  }
-  if ( seek_parameter( "chromosomes", $CONF{ticks} ) ) {
-    my @chrs =
-      split( /[,;]/, seek_parameter( "chromosomes", $CONF{ticks} ) );
-    for my $chr (@chrs) {
-      if ( $chr =~ /^\-(.+)/ ) {
-	$chrs_for_ticks{$1} = 0;
-      } elsif ( $chr =~ /^\+?(.+)/ ) {
-	$chrs_for_ticks{$1}++;
-      }
-    }
-  }
-
-  if ( $chrs_for_ticks{$chr} ) {
-    #printinfo("drawing ticks on",$chr);
-  } else {
-    printinfo( "supressing ticks on", $chr );
-    return;
-  }
-
   my @requested_ticks = make_list( $CONF{ticks}{tick} );
+
+  ################################################################
+  # Identify ideograms on which ticks should be drawn. By default, ticks
+  # are drawn on each ideogram (chromosomes_display_default=yes). To suppress
+  # ticks, use
+  #
+  # chromosomes = -hs1;-hs2 ...
+  # 
+  # To draw only on specific ideograms, set chromosomes_display_default=no
+  # and define
+  #
+  # chromosomes = hs1;hs5;...
+  #
+  # Tick blocks can have these parameters defined, which will override
+  # their definition in <ticks> for the tick block.
+  #
+  # To show (or suppress) ticks within a range, 
+  #
+  # chromosomes = hs1:10-20
+  # chromosomes = -hs1:10-20
+  #
+
+  for my $tick (@requested_ticks) {
+    next if defined $tick->{_ideogram};
+
+    my $show_default    = seek_parameter( "chromosomes_display_default", $tick, $CONF{ticks} );
+    my $ideogram_filter = seek_parameter( "chromosomes", $tick, $CONF{ticks} );
+    $tick->{_ideogram} = {show_default=>$show_default,
+			  filter=>merge_ideogram_filters(
+							 parse_ideogram_filter(seek_parameter( "chromosomes", $CONF{ticks} )),
+							 parse_ideogram_filter(seek_parameter( "chromosomes", $tick ))
+							)
+			 };
+    printdumper($tick->{_ideogram});
+  }
 
   # parse and fill data structure for each tick level - process
   # units on grids and spacing (do this now rather than later when
   # ticks are drawn)
-  #
+
   for my $tick (@requested_ticks) {
-    #
-    # skip this tick data structure if it has already been processed
-    # (by call from previously drawn ideograms)
-    # next if $tick->{_processed}++;
-    # do nothing if we don't want to show this tick
-    #
+    # do not process this tick if it is not being shown
     next if !show_element($tick);
     process_tick_structure( $tick, $ideogram );
   }
@@ -5950,8 +5951,7 @@ sub draw_ticks {
   my @ticks;
 
   # ticks with relative spacing have had their spacing already
-  # defined (rspacing*ideogram_size)
-  # by process_tick_structure()
+  # defined (rspacing*ideogram_size) by process_tick_structure()
   for my $tickdata ( sort { $b->{spacing} <=> $a->{spacing} } @requested_ticks ) {
     next unless show_element($tickdata);
     for my $tick_radius ( @{ $tickdata->{_radius} } ) {
@@ -6029,9 +6029,7 @@ sub draw_ticks {
       for my $mb_pos (@mb_pos) {
 	my $pos = $mb_pos;
 	my $do_not_draw;
-	if ( 
-	    !seek_parameter( "force_display", $tickdata, $CONF{ticks} )
-	   ) {
+	if ( !seek_parameter( "force_display", $tickdata, $CONF{ticks} ) ) {
 	  #
 	  # Normally, if a tick at a given radius and position has
 	  # been drawn, it is not drawn again (e.g. 10 Mb ticks are
@@ -6053,6 +6051,31 @@ sub draw_ticks {
 	  next if $do_not_draw && ! $tickdata->{url}
 	  #next if $pos_ticked{$tick_radius}{$pos}++;
 	}
+	# determine whether this tick is suppressed
+	my $is_suppressed = 0;
+	my $tag = $ideogram->{tag};
+	#printdumper($tickdata->{_ideogram});
+	if($tickdata->{_ideogram}{show_default} ) {
+	  # This tick will be shown on all chromosomes by default. Check
+	  # check whether this position is explicitly excluded.
+	  if(defined $tickdata->{_ideogram}{filter}{$tag}{hide}
+	     &&
+	     $tickdata->{_ideogram}{filter}{$tag}{hide}->member($pos)) {
+	    $is_suppressed = 1;
+	  }
+	} else {
+	  # This tick is not shown by default. Check that its combined
+	  # filter (show-hide) contains this position
+	  if(defined $tickdata->{_ideogram}{filter}{$tag}{combined}
+	     &&
+	     $tickdata->{_ideogram}{filter}{$tag}{combined}->member($pos)) {
+	    $is_suppressed = 0;
+	  } else {
+	    $is_suppressed = 1;
+	  }
+	}
+	printinfo($tag,$pos,$tickdata->{spacing},$is_suppressed);
+	next if $is_suppressed;
 
 	#
 	# this is a bit of a hack, but is required because we
@@ -6658,27 +6681,20 @@ sub process_tick_structure {
   # do some up-front munging of the tick data structures
   my ( $tick, $ideogram ) = @_;
 
-  #
   # handle relatively spaced ticks (e.g. every 0.1), or ticks at
   # specific relative position (e.g. at 0.1)
-  #
+
   if ( seek_parameter( "spacing_type", $tick, $CONF{ticks} ) eq "relative" ) {
-    if (
-	!defined seek_parameter( "rspacing|rposition", $tick, $CONF{ticks} )
-       ) {
+    if (!defined seek_parameter( "rspacing|rposition", $tick, $CONF{ticks} ) ) {
       croak "error processing tick - this tick's spacing_type is ",
 	"set to relative, but no rspacing or rposition parameter is set";
     }
 
     if ( seek_parameter( "rspacing", $tick, $CONF{ticks} ) ) {
-      if (
-	  unit_validate(
-			seek_parameter( "rspacing", $tick, $CONF{ticks} ),
-			"ticks/tick/rspacing", qw(n)
-		       )
+      if ( unit_validate(seek_parameter( "rspacing", $tick, $CONF{ticks} ),
+			 "ticks/tick/rspacing", qw(n))
 	 ) {
-	my $mb_rspacing = Math::BigFloat->new(
-					      seek_parameter( "rspacing", $tick, $CONF{ticks} ) );
+	my $mb_rspacing = Math::BigFloat->new(seek_parameter( "rspacing", $tick, $CONF{ticks} ) );
 
 	#
 	# this is important - if the divisor for relative tick
@@ -6818,7 +6834,6 @@ sub process_tick_structure {
       }
     }
   }
-
   $tick->{_radius} = \@tick_radius;
   $tick->{_processed}++;
 }
@@ -7214,6 +7229,74 @@ sub refine_display_regions {
 	       "region_explicit_reject", $region->{reject}->run_list
 	      );
   }
+}
+
+sub merge_ideogram_filters {
+  # Merges multiple ideogram filters into a single filter by taking
+  # the union of all sets for a given type (show, hide) and
+  # ideogram. This function also creates a new type (combined) which 
+  # is show->diff(hide)
+  my @filters = @_;
+  my $merged_filter;
+  my %chrs;
+  for my $filter (@filters) {
+    for my $chr (keys %$filter) {
+      for my $type (keys %{$filter->{$chr}}) {
+	if($merged_filter->{$chr}{$type}) {
+	  $merged_filter->{$chr}{$type}->U( $filter->{$chr}{$type} );
+	} else {
+	  $merged_filter->{$chr}{$type} = $filter->{$chr}{$type};
+	}
+      }
+    }
+  }
+  for my $chr (keys %$merged_filter) {
+    if(exists $merged_filter->{$chr}{show}) {
+      if(exists $merged_filter->{$chr}{hide}) {
+	$merged_filter->{$chr}{combined} = $merged_filter->{$chr}{show}->diff($merged_filter->{$chr}{hide});
+      } else {
+	$merged_filter->{$chr}{combined} = $merged_filter->{$chr}{show};
+      }
+    } else {
+      if(exists $merged_filter->{$chr}{hide}) {
+	$merged_filter->{$chr}{combined} = Set::IntSpan->new("(-)")->diff($merged_filter->{$chr}{hide});
+      } else {
+	$merged_filter->{$chr}{combined} = Set::IntSpan->new("(-)");
+      }
+    }
+  }
+  return $merged_filter;
+}
+
+sub parse_ideogram_filter {
+  # Parse a tick's ideogram filter. The format of this filter string is the same
+  # as for the chromosomes parameter. The filter data structure defines
+  # an ideogram (and its range) as either shown or hidden
+  #
+  # $filter->{CHR}{hide} = RANGE
+  # $filter->{CHR}{show}     = RANGE
+  #
+  # TODO There is some duplication between this function and parse_chromosomes(). 
+  # Common functionality should be centralized.
+
+  my $filter_string = shift;
+  my $filter = {};
+  return $filter if ! defined $filter_string;
+
+  for my $chr (split(/;/,$filter_string)) {
+    my ($suppress,$tag,$runlist) = $chr =~ /(-)?([^:]+):?(.*)/;
+    if ( $CONF{chromosomes_units} ) {
+      $runlist =~ s/([\.\d]+)/$1*$CONF{chromosomes_units}/eg;
+    }
+    my $is_suppressed = $suppress ? 1 : 0;
+    my $set = Set::IntSpan->new( $runlist || "(-)" );
+    if($is_suppressed) {
+      $filter->{$tag}{hide} = $set;
+    } else {
+      $filter->{$tag}{show} = $set;
+    }
+  }
+  return $filter;
 }
 
 # -------------------------------------------------------------------
@@ -8902,8 +8985,7 @@ sub show_element {
   #
 
   my $param = shift;
-  croak "input parameter is not a hash reference"
-    unless ref($param) eq "HASH";
+  croak "input parameter is not a hash reference" unless ref($param) eq "HASH";
 
   # the presence of "hide" overrides any value of "show"
   return 0 if $param->{hide};
