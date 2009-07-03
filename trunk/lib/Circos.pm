@@ -10,12 +10,8 @@ Circos - Circular data visualizations for comparison of genomes, among other thi
 
 =head1 SYNOPSIS
 
-Quick summary of what the module does.
-
-Perhaps a little code snippet.
-
     use Circos;
-    my $circos = Circos->new( %OPTIONS );
+    Circos->run( %OPTIONS );
 
 =head1 DESCRIPTION
 
@@ -26,14 +22,25 @@ and related annotations.
 Circos is particularly suited for visualizing alignments, conservation
 and intra and inter-chromosomal relationships. However, Circos can be
 used to plot any kind of 2D data in a circular layout - its use is not
-limited to genomics.
+limited to genomics. Circos' use of lines to relate position pairs
+(ribbons add a thickness parameter to each end) is effective to
+display relationships between objects or positions on one or more
+scales.
 
 Presently all documentation is in the form of tutorials at
 http://mkweb.bcgsc.ca/circos.
 
+=head1 IMPLEMENTATION
+
+At this time, the module does not return any value, nor does it allow
+for dynamic manipulation of the image creation process.
+
+Pass in configuration parameters to generate an image. To create
+another image, call run again with different options.
+
 =head1 VERSION
 
-Version 0.50.
+Version 0.51.
 
 =head1 FUNCTIONS/METHODS
 
@@ -665,19 +672,18 @@ or a hashref of the configuration options.
     #next if $ideogram->{set}->cardinality < 2; # CHECK THIS
     my $chr = $ideogram->{chr};
     my ( $start, $end ) = ( $ideogram->{set}->min, $ideogram->{set}->max );
-    my ( $start_a, $end_a ) =
-      ( getanglepos( $start, $chr ), getanglepos( $end, $chr ) );
+    my ( $start_a, $end_a ) = ( getanglepos( $start, $chr ), getanglepos( $end, $chr ) );
 
-    printdebug(
-	       sprintf(
-		       'ideogram %s scale %f idx %d base_range %d %d angle_range %.3f %.3f',
+    printdebug(sprintf('ideogram %s scale %f idx %d base_range %d %d angle_range %.3f %.3f',
 		       $chr, $ideogram->{scale}, $ideogram->{display_idx},
 		       $start, $end, $start_a, $end_a
 		      )
 	      );
-
+    
+    #printinfo("drawing highlights");
     draw_highlights( $data->{highlights}, $chr, $ideogram->{set}, $ideogram,
 		     { ideogram => 0, layer_with_data => 0 } );
+    #printinfo("done drawing highlights");
     
     # first pass at drawing ideogram - stroke and fill
     # TODO consider removing this if radius_from==radius_to
@@ -808,18 +814,20 @@ or a hashref of the configuration options.
 
     # ideogram outline - stroke only, not filled
     # ideogram outline and label
-    slice(
-	  image       => $IM,
-	  start       => $start,
-	  end         => $end,
-	  chr         => $chr,
-	  radius_from => get_ideogram_radius($ideogram) -
-	  $DIMS->{ideogram}{ $ideogram->{tag} }{thickness},
-	  radius_to  => get_ideogram_radius($ideogram),
-	  edgecolor  => $CONF{ideogram}{stroke_color},
-	  edgestroke => $CONF{ideogram}{stroke_thickness},
-	  fillcolor  => undef,
-	 );
+    if($CONF{ideogram}{stroke_thickness}) {
+      slice(
+	    image       => $IM,
+	    start       => $start,
+	    end         => $end,
+	    chr         => $chr,
+	    radius_from => get_ideogram_radius($ideogram) -
+	    $DIMS->{ideogram}{ $ideogram->{tag} }{thickness},
+	    radius_to  => get_ideogram_radius($ideogram),
+	    edgecolor  => $CONF{ideogram}{stroke_color},
+	    edgestroke => $CONF{ideogram}{stroke_thickness},
+	    fillcolor  => undef,
+	   );
+    }
   }
 
   for my $ideogram (@IDEOGRAMS) {
@@ -4541,24 +4549,31 @@ sub draw_highlights {
   for my $highlight_set ( make_list( $datasets->{dataset} ) ) {
     printsvg(qq{<g id="highlight$highlightid">}) if $SVG_MAKE;
     $highlightid++;
+    # create a working list of highlights at a given z-depth
+    next unless ref( $highlight_set->{data} ) eq "ARRAY";
+    my $working_list;
+    for my $data ( map { $_->{data}[0] } @{ $highlight_set->{data} } ) {
+      next unless $data->{data}{chr} eq $chr;
+      my $z = seek_parameter( "z", $data, $highlight_set, $datasets ) || 0;
+      push @{$working_list->{$z}}, $data;
+    }
     for my $targetz ( @{ $datasets->{param}{zlist} } ) {
-      next unless ref( $highlight_set->{data} ) eq "ARRAY";
-      for my $data ( map { $_->{data}[0] } @{ $highlight_set->{data} } ) {
-	next unless $data->{data}{chr} eq $chr;
+      #printinfo($targetz);
+      #next unless ref( $highlight_set->{data} ) eq "ARRAY";
+      for my $data (@{$working_list->{$targetz}}) {
+	#for my $data ( map { $_->{data}[0] } @{ $highlight_set->{data} } ) {
+	#next unless $data->{data}{chr} eq $chr;
 	my $z = seek_parameter( "z", $data, $highlight_set, $datasets );
-	next unless defined ($z && $z == $targetz) || (! $z && ! $targetz);
+	#next unless defined ($z && $z == $targetz) || (! $z && ! $targetz);
 	my $dataset = Set::IntSpan->new(sprintf("%d-%d", 
 						$data->{data}{start}, 
 						$data->{data}{end}
 					       )
 				       );
 	next unless $set->intersect($dataset)->cardinality;
-
 	my $set = filter_data( $dataset, $chr );
-	my $r0 =
-	  seek_parameter( "r0", $data, $highlight_set, $datasets );
-	my $r1 =
-	  seek_parameter( "r1", $data, $highlight_set, $datasets );
+	my $r0  = seek_parameter( "r0", $data, $highlight_set, $datasets );
+	my $r1  = seek_parameter( "r1", $data, $highlight_set, $datasets );
 	$r0 = unit_parse( $r0, $ideogram );
 	$r1 = unit_parse( $r1, $ideogram );
 	my $accept = 1;
@@ -6313,11 +6328,24 @@ sub draw_ticks {
   my ($last_label_idx)  = grep( $ticks[$_]{labeldata}, reverse( 0 .. @ticks - 1 ) );
   my @tick_idx = sort { $ticks[$a]{pos} <=> $ticks[$b]{pos} } ( 0 .. @ticks - 1 );
 
-  # determine whether labels of ticks within a spacing group overlaps
+  # Determine whether labels of ticks within a spacing group overlap (label_separation)
+  # and if so, set the do_not_draw key to suppress their display.
+  #
+  # This loop also applies tests to the first and last labels of the ideogram
+  # to see whether they should be suppressed (skip_first_label, skip_last_label).
+
   for my $spacing (keys %$tick_groups) {
     for my $radius (keys %{$tick_groups->{$spacing}}) {
       my @tick_with_label = grep($_->{labeldata}, @{$tick_groups->{$spacing}{$radius}});
+      next unless @tick_with_label;
       my $label_color;
+      if(seek_parameter("skip_first_label",$tick_with_label[0]{tickdata},$CONF{ticks})) {
+	$tick_with_label[0]{labeldata}{do_not_draw} = 1;
+      }
+      if(seek_parameter("skip_last_label",$tick_with_label[-1]{tickdata},$CONF{ticks})) {
+	$tick_with_label[-1]{labeldata}{do_not_draw} = 1;
+      }
+
       if (my $sep = $tick_with_label[0]{labeldata}{label_separation}) {
 	$sep = unit_strip(unit_validate($sep, "ticks/label_separation", "p"));
 	if($sep) {
@@ -6452,8 +6480,6 @@ sub draw_ticks {
 	       );
     }
     if ( $tick->{labeldata} ) {
-      next if $tick_idx == $first_label_idx && $CONF{ticks}{skip_first_label};
-      next if $tick_idx == $last_label_idx  && $CONF{ticks}{skip_last_label};
       next if $tick->{labeldata}{do_not_draw};
       draw_text(
                 image => $IM,
@@ -8017,6 +8043,8 @@ sub ribbon {
 			       getanglepos( $params{end},   $params{chr} )
 			      );
 
+    printdumper(\%params,$start_a,$end_a);
+
     if ( $end_a < $start_a ) {
       ( $start_a, $end_a ) = ( $end_a, $start_a );
     }
@@ -8034,18 +8062,11 @@ sub ribbon {
     }
 
     my $svg;
-
     if ( $params{radius_from} == $params{radius_to} ) {
-      #
-      # bug fix v0.41 - ellipses with same start/end point don't
-      # display correctly here I adjust the end angle by a tiny
-      # amount
-      #
       my $end_a_mod = $end_a;
-      if ( abs( $end_a - $start_a ) == 360 || $start_a == $end_a ) {
+      if ( abs( $end_a - $start_a ) > 359.99 || $start_a == $end_a ) {
 	$end_a_mod -= 0.01;
       }
-
       #
       # when the start/end radius is the same, there can be no
       # fill because the slice is 0-width
@@ -8066,7 +8087,7 @@ sub ribbon {
 		     && $params{edgecolor} ? sprintf( "stroke: rgb(%d,%d,%d);",
 						      rgb_color( $params{edgecolor} ) ) : $EMPTY_STR,
 		    );
-    } elsif ( $start_a == $end_a ) {
+    } elsif ( $end_a == $start_a ) {
       $svg = sprintf(
 		     qq{<path d="M %.1f,%.1f L %.1f,%.1f " style="%s %s fill: none;" />},
 		     getxypos( $start_a, $params{radius_from} ),
@@ -8080,13 +8101,8 @@ sub ribbon {
 		    );
     } else {
       my $sweepflag = abs( $start_a - $end_a ) > 180;
-
-      #
-      # bug fix v0.41 - ellipses with same start/end point don't
-      # display correctly
-      #
       my $end_a_mod = $end_a;
-      if ( abs( $end_a - $start_a ) == 360 || $start_a == $end_a ) {
+      if ( abs( $end_a - $start_a ) > 359.99 || $start_a == $end_a ) {
 	$end_a_mod -= 0.01;
       }
 
@@ -8972,6 +8988,12 @@ sub printout {
 =head1 AUTHOR
 
 Martin Krzywinski E<lt>martink at bcgsc.caE<gt>.
+
+=head1 CITING
+
+If you are using Circos in a publication, please cite as
+
+Krzywinski, M., J. Schein, I. Birol, J. Connors, R. Gascoyne, D. Horsman, S. Jones, and M. Marra. 2009. Circos: an Information Aesthetic for Comparative Genomics. Genome Res (in press).
 
 =head1 CONTRIBUTORS
 
