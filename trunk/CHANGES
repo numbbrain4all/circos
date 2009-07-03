@@ -239,3 +239,8 @@ Backend implementation has been adjusted, with Circos code moved to Circos.pm mo
 xx xx 2009 v0.51
 
 Added more comprehensive options to show and suppress tick marks based on ideogram and position.
+
+Fixed scale zooming for display at base resolution.
+
+Expanded and streamlined tick mark functionality.
+

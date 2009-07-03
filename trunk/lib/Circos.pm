@@ -340,6 +340,7 @@ or a hashref of the configuration options.
 
   ################################################################
   # non-linear scale
+
   my @zooms = make_list( $CONF{zooms}{zoom} );
   for my $zoom (@zooms) {
     my @param_path = ( $CONF{zooms} );
@@ -352,38 +353,33 @@ or a hashref of the configuration options.
 				   factors => { ub => $CONF{chromosomes_units} }
 				  );
     }
-    $zoom->{set} =
-      Set::IntSpan->new( sprintf( '%d-%d', $zoom->{start}, $zoom->{end} ) );
-    my $smooth_distance =
-      seek_parameter( 'smooth_distance', $zoom, @param_path );
+    $zoom->{set} = Set::IntSpan->new( sprintf( '%d-%d', $zoom->{start}, $zoom->{end} ) );
+    my $smooth_distance = seek_parameter( 'smooth_distance', $zoom, @param_path );
     my $smooth_steps = seek_parameter( 'smooth_steps', $zoom, @param_path );
     next unless $smooth_distance && $smooth_steps;
     unit_validate( $smooth_distance, 'smooth_distance', qw(r u b) );
-    $smooth_distance = unit_convert(
-				    from    => $smooth_distance,
+    $smooth_distance = unit_convert(from    => $smooth_distance,
 				    to      => 'b',
-				    factors => {
-						ub => $CONF{chromosomes_units},
-						rb => $zoom->{set}->cardinality
-					       }
+				    factors => {ub => $CONF{chromosomes_units},
+						rb => $zoom->{set}->cardinality}
 				   );
     $zoom->{smooth}{distance} = $smooth_distance;
     $zoom->{smooth}{steps}    = $smooth_steps;
   }
-
   my $Gspans;
   for my $ideogram (@IDEOGRAMS) {
+
     my $chr = $ideogram->{chr};
 
     # create sets and level for zoom
     my @param_path = ( $CONF{zooms}{zoom} );
 
     # check which zooms apply to this ideogram
-    my @ideogram_zooms =
-      grep( $_->{chr} eq $ideogram->{chr}
-	    && ( !defined $_->{use} || $_->{use} )
-	    && $ideogram->{set}->intersect( $_->{set} )->cardinality,
-            @zooms );
+    my @ideogram_zooms = grep( $_->{chr} eq $ideogram->{chr}
+			       && ( !defined $_->{use} || $_->{use} )
+			       && $ideogram->{set}->intersect( $_->{set} )->cardinality,
+			       @zooms );
+    # construct a list of zoomed regions from smoothing parameters (smooth_distance, smooth_steps)
     my @zooms_smoothers;
     for my $zoom (@ideogram_zooms) {
       my $d = $zoom->{smooth}{distance};
@@ -391,41 +387,31 @@ or a hashref of the configuration options.
       next unless $d && $n;
       my $subzoom_size = $d / $n;
       for my $i ( 1 .. $n ) {
-	my $subzoom_scale =
-	  ( $zoom->{scale} * ( $n + 1 - $i ) + $ideogram->{scale} * $i )
-	    / ( $n + 1 );
-
-	#printinfo($d,$n,$subzoom_size,$i,$subzoom_scale);
+	my $subzoom_scale = ( $zoom->{scale} * ( $n + 1 - $i ) + $ideogram->{scale} * $i ) / ( $n + 1 );
+	printinfo($d,$n,$subzoom_size,$i,$subzoom_scale);
 	my $subzoom_start = $zoom->{set}->min - $i * $subzoom_size;
 	my $subzoom_end   = $subzoom_start + $subzoom_size;
 	push @zooms_smoothers,
-	  {
-	   set => Set::IntSpan->new(
-				    sprintf( '%d-%d', $subzoom_start, $subzoom_end )
-				   )->intersect( $ideogram->{set} ),
+	  {set => Set::IntSpan->new(sprintf( '%d-%d', $subzoom_start, $subzoom_end ))->intersect( $ideogram->{set} ),
 	   scale => $subzoom_scale
 	  };
 	$subzoom_start = $zoom->{set}->max + ( $i - 1 ) * $subzoom_size;
 	$subzoom_end = $subzoom_start + $subzoom_size;
 	push @zooms_smoothers,
-	  {
-	   set => Set::IntSpan->new(
-				    sprintf( '%d-%d', $subzoom_start, $subzoom_end )
-				   )->intersect( $ideogram->{set} ),
+	  {set => Set::IntSpan->new(sprintf( '%d-%d', $subzoom_start, $subzoom_end ))->intersect( $ideogram->{set} ),
 	   scale => $subzoom_scale
 	  };
       }
     }
     push @ideogram_zooms, @zooms_smoothers if @zooms_smoothers;
-    push @ideogram_zooms,
-      {
-       set => $ideogram->{set}, scale => $ideogram->{scale}, null => 1 };
+    push @ideogram_zooms, {set => $ideogram->{set}, scale => $ideogram->{scale}, null => 1 };
 
     my %boundaries;
     for my $zoom (@ideogram_zooms) {
-      for my $pos (
-		   $zoom->{set}->min - 1, $zoom->{set}->min,
-		   $zoom->{set}->max,     $zoom->{set}->max + 1
+      for my $pos ($zoom->{set}->min-1,
+		   $zoom->{set}->min,
+		   $zoom->{set}->max,
+		   $zoom->{set}->max+1
 		  ) {
 	$boundaries{$pos}++;
       }
@@ -435,7 +421,6 @@ or a hashref of the configuration options.
     # the first and last boundary are, by construction, outside of any
     # zoom set, so we are rejecting these
     @boundaries = @boundaries[ 1 .. @boundaries - 2 ];
-
     my @covers;
     for my $i ( 0 .. @boundaries - 2 ) {
       my ( $x, $y ) = @boundaries[ $i, $i + 1 ];
@@ -445,7 +430,7 @@ or a hashref of the configuration options.
       for my $zoom (@ideogram_zooms) {
 	if ( $zoom->{set}->intersect( $cover->{set} )->cardinality ) {
 	  my $zoom_level = max( $zoom->{scale}, 1 / $zoom->{scale} );
-	  if ( !defined $cover->{level}
+	  if ( ! defined $cover->{level}
 	       || ( !$zoom->{null} && $zoom_level > $cover->{level} ) ) {
 	    $cover->{level} = $zoom_level;
 	    $cover->{scale} = $zoom->{scale};
@@ -472,8 +457,10 @@ or a hashref of the configuration options.
 	push @covers, $cover;
       }
     }
-
+    # make sure that covers don't overlap
+    my $prev_cover;
     for my $cover (@covers) {
+      $cover->{set}->D($prev_cover->{set}) if $prev_cover;
       printinfo(
                 sprintf(
 			"zoomregion ideogram %d chr %s %9d %9d scale %5.2f absolutescale %5.2f",
@@ -482,19 +469,16 @@ or a hashref of the configuration options.
 			$cover->{scale},    $cover->{level}
 		       )
 	       );
+      $prev_cover = $cover;
     }
 
-    # add up the zoomed distances for all zooms (zoom range * level) as well as
-    # size of all zooms
-    my $sum_cover_sizescaled =
-      sum( map { ( $_->{set}->cardinality - 1 ) * $_->{scale} } @covers );
-    my $sum_cover_size =
-      sum( map { ( $_->{set}->cardinality - 1 ) } @covers );
+    # add up the zoomed distances for all zooms (zoom range * level) as well as size of all zooms
+    my $sum_cover_sizescaled = sum( map { ( $_->{set}->cardinality ) * $_->{scale} } @covers );
+    my $sum_cover_size = sum( map { ( $_->{set}->cardinality   ) } @covers );
 
     $ideogram->{covers}          = \@covers;
     $ideogram->{length}{scale}   = $sum_cover_sizescaled;
-    $ideogram->{length}{noscale} = $ideogram->{set}->cardinality - 1;
-
+    $ideogram->{length}{noscale} = $ideogram->{set}->cardinality;
   }
 
   ################################################################
@@ -506,8 +490,8 @@ or a hashref of the configuration options.
     $ideogram->{length}{cumulative}{scale}   = $Gsize;
     $ideogram->{length}{cumulative}{noscale} = $GSIZE_NOSCALE;
     for my $cover ( @{ $ideogram->{covers} } ) {
-      $Gsize += ( $cover->{set}->cardinality - 1 ) * $cover->{scale};
-      $GSIZE_NOSCALE += ( $cover->{set}->cardinality - 1 );
+      $Gsize += ( $cover->{set}->cardinality ) * $cover->{scale};
+      $GSIZE_NOSCALE += ( $cover->{set}->cardinality );
     }
   }
   printdebug( "total displayed chromosome size", $GSIZE_NOSCALE );
@@ -673,14 +657,12 @@ or a hashref of the configuration options.
   #
   ################################################################
 
-  my $tick_cover       = Set::IntSpan->new();
-  my $tick_label_cover = Set::IntSpan->new();
-
   printsvg(qq{<g id="ideograms">}) if $SVG_MAKE;
 
   for my $ideogram (@IDEOGRAMS) {
     $ideogram->{set}->cardinality;
-    next if $ideogram->{set}->cardinality < 2; # CHECK THIS
+    # TODO - what was the point of this?
+    #next if $ideogram->{set}->cardinality < 2; # CHECK THIS
     my $chr = $ideogram->{chr};
     my ( $start, $end ) = ( $ideogram->{set}->min, $ideogram->{set}->max );
     my ( $start_a, $end_a ) =
@@ -785,11 +767,7 @@ or a hashref of the configuration options.
 
     # draw scale ticks
     if ( $CONF{show_ticks} ) {
-      draw_ticks(
-		 ideogram         => $ideogram,
-		 tick_cover       => $tick_cover,
-		 tick_label_cover => $tick_label_cover,
-		);
+      draw_ticks(ideogram         => $ideogram);
     } 
 
     # cytogenetic bands
@@ -4136,6 +4114,14 @@ or a hashref of the configuration options.
   return 1;
 }
 
+sub round_up {
+  my $value = shift;
+  if($value - int($value) > 0.5) {
+    return round($value);
+  } else {
+    return 1 + int($value);
+  }
+}
 # -------------------------------------------------------------------
 sub fetch_brush {
   # given a brush size, try to fetch it from the brush
@@ -5297,7 +5283,8 @@ sub unit_parse {
   # where TERM is one of
   #
   # 1. single value with any supported unit
-  # 2. dims(a,b) for a,b
+  # 2. the string "dims(a,b)" for some parameters a,b
+
   my $expression = shift;
   my $ideogram   = shift;
   my $side       = shift;
@@ -5879,20 +5866,12 @@ sub read_data_file {
 
 # -------------------------------------------------------------------
 sub draw_ticks {
-  validate( 
-	   @_, 
-	   {
-            ideogram         => 1,
-            tick_cover       => { isa => 'Set::IntSpan' },
-            tick_label_cover => { isa => 'Set::IntSpan' },
-	   }
-	  );
-
   # draw ticks and associated labels
+
+  validate( @_, { ideogram         => 1 } );
+
   my %args             = @_;
   my $ideogram         = $args{'ideogram'};
-  my $tick_cover       = $args{'tick_cover'};
-  my $tick_label_cover = $args{'tick_label_cover'};
   my $chr              = $ideogram->{chr};
 
   my @requested_ticks = make_list( $CONF{ticks}{tick} );
@@ -5920,16 +5899,14 @@ sub draw_ticks {
 
   for my $tick (@requested_ticks) {
     next if defined $tick->{_ideogram};
-
-    my $show_default    = seek_parameter( "chromosomes_display_default", $tick, $CONF{ticks} );
+    
+    my $show_default    = seek_parameter( "chromosomes_display_default", $tick, $CONF{ticks} )
+      || ! defined seek_parameter( "chromosomes_display_default", $tick, $CONF{ticks} );
     my $ideogram_filter = seek_parameter( "chromosomes", $tick, $CONF{ticks} );
     $tick->{_ideogram} = {show_default=>$show_default,
-			  filter=>merge_ideogram_filters(
-							 parse_ideogram_filter(seek_parameter( "chromosomes", $CONF{ticks} )),
-							 parse_ideogram_filter(seek_parameter( "chromosomes", $tick ))
-							)
+			  filter=>merge_ideogram_filters(parse_ideogram_filter(seek_parameter( "chromosomes", $CONF{ticks} )),
+							 parse_ideogram_filter(seek_parameter( "chromosomes", $tick )))
 			 };
-    printdumper($tick->{_ideogram});
   }
 
   # parse and fill data structure for each tick level - process
@@ -5949,11 +5926,13 @@ sub draw_ticks {
   $DIMS->{tick}{max_tick_length} = $max_tick_length;
 
   my @ticks;
+  my $tick_groups;
 
   # ticks with relative spacing have had their spacing already
   # defined (rspacing*ideogram_size) by process_tick_structure()
   for my $tickdata ( sort { $b->{spacing} <=> $a->{spacing} } @requested_ticks ) {
     next unless show_element($tickdata);
+    my $tick_label_max;
     for my $tick_radius ( @{ $tickdata->{_radius} } ) {
       printinfo(
                 "drawing ticks",
@@ -5968,7 +5947,6 @@ sub draw_ticks {
                 : $tickdata->{spacing}
 	       );
       my @mb_pos;
-
       #
       # the absolute start and end tick positions will be Math::BigFloat;
       #
@@ -5976,60 +5954,47 @@ sub draw_ticks {
       if ( seek_parameter( "spacing", $tickdata, $CONF{ticks} ) ) {
 	$dims_key = join( $COLON, $tickdata->{spacing}, $tick_radius );
 	my ( $mb_pos_start, $mb_pos_end );
-
-	if (
-	    seek_parameter( "spacing_type", $tickdata, $CONF{ticks} ) 
-	    eq "relative" 
-	   ) {
-	  if (
-	      seek_parameter(
-			     "rdivisor|label_rdivisor", $tickdata,
-			     $CONF{ticks}
-			    ) eq "ideogram"
-	     ) {
-
-	    #printinfo("divisor",$ideogram->{set}->cardinality);
-	    $mb_pos_start =
-	      Math::BigFloat->new( $ideogram->{set}->min );
-	    $mb_pos_end = $ideogram->{set}->max + 1;
+	if ( seek_parameter( "spacing_type", $tickdata, $CONF{ticks} ) eq "relative" ) {
+	  if ( seek_parameter("rdivisor|label_rdivisor", $tickdata, $CONF{ticks} ) eq "ideogram" ) {
+	    # IDEOGRAM RELATIVE
+	    # the start/end position will be the start-end range of this ideogram
+	    # i.e. - relative positions will start at the start of ideogram crop, relative to chr length
+	    $mb_pos_start = Math::BigFloat->new( $ideogram->{set}->min );
+	    $mb_pos_end   = $ideogram->{set}->max + 1;
 	  } else {
-	    #
-	    # if the ticks are relative to the chromosome
-	    # (no rdivisor stated), then they always start
-	    # at 0 and increment by rspacing up to 1
-	    #
+	    # CHROMOSOME RELATIVE
+	    # the start/end position will be the 0-chrlen for this ideogram
+	    # i.e. - relative positions will start at 0 
 	    $mb_pos_start = Math::BigFloat->new(0);
-	    $mb_pos_end   = $ideogram->{chrlength};
+	    $mb_pos_end   = $ideogram->{chrlength} - 1;
 	  }
 	} else {
-	  $mb_pos_start =
-	    nearest( $tickdata->{spacing}, $ideogram->{set}->min );
-	  $mb_pos_end =
-	    nearest( $tickdata->{spacing}, $ideogram->{set}->max );
+	  $mb_pos_start = nearest( $tickdata->{spacing}, $ideogram->{set}->min );
+	  $mb_pos_end   = nearest( $tickdata->{spacing}, $ideogram->{set}->max );
 	}
+	#printinfo("mbpos","start",$mb_pos_start,"end",$mb_pos_end);
 
 	#
-	# compile a list of position for this tick;
+	# compile a list of position for this tick - this is an important step because we will
+	# draw positions from this list and not from the tick data structures
 	#
-	for (
-	     my $mb_pos = $mb_pos_start ;
-	     $mb_pos <= $mb_pos_end ;
-	     $mb_pos += $tickdata->{spacing}
-	    ) {
+	for ( my $mb_pos = $mb_pos_start ; $mb_pos <= $mb_pos_end ; $mb_pos += $tickdata->{spacing} ) {
 	  push @mb_pos, $mb_pos;
 	}
       } elsif ( seek_parameter( "position", $tickdata, $CONF{ticks} ) ) {
-	$dims_key = join( $COLON, join( 
-				       $EMPTY_STR, @{ $tickdata->{position} } ), $tick_radius 
-			);
-	@mb_pos = @{ $tickdata->{position} };
+	$dims_key = join( $COLON, join( $EMPTY_STR, @{ $tickdata->{position} } ), $tick_radius );
+	@mb_pos = sort {$a <=> $b} @{ $tickdata->{position} };
       }
 
       # go through every position and draw the tick
+
       for my $mb_pos (@mb_pos) {
+	# if the tick is outside the ideogram, it isn't shown
+	next if !$ideogram->{set}->member($mb_pos);
+
 	my $pos = $mb_pos;
 	my $do_not_draw;
-	if ( !seek_parameter( "force_display", $tickdata, $CONF{ticks} ) ) {
+	if ( ! seek_parameter( "force_display", $tickdata, $CONF{ticks} ) ) {
 	  #
 	  # Normally, if a tick at a given radius and position has
 	  # been drawn, it is not drawn again (e.g. 10 Mb ticks are
@@ -6048,10 +6013,11 @@ sub draw_ticks {
 	  # actual tick is not drawn (but the loop is used to generate
 	  # the image map element).
 	  $do_not_draw = $pos_ticked{$tick_radius}{$pos}++;
-	  next if $do_not_draw && ! $tickdata->{url}
-	  #next if $pos_ticked{$tick_radius}{$pos}++;
+	  #next if $do_not_draw && ! $tickdata->{url};
 	}
-	# determine whether this tick is suppressed
+
+	# determine whether this tick is suppressed by 'chromosomes_display_default'
+	# and 'chromosomes' parameters, which were parsed using parse_ideogram_filter()
 	my $is_suppressed = 0;
 	my $tag = $ideogram->{tag};
 	#printdumper($tickdata->{_ideogram});
@@ -6074,115 +6040,72 @@ sub draw_ticks {
 	    $is_suppressed = 1;
 	  }
 	}
-	printinfo($tag,$pos,$tickdata->{spacing},$is_suppressed);
 	next if $is_suppressed;
 
-	#
+	# TODO - fix/handle this - is it necessary?
 	# this is a bit of a hack, but is required because we
-	# use 0-based positions on the ideograms, but a
+	# use 0-indexed positions on the ideograms, but a
 	# relative tick mark at 1.0 won't be shown because it
 	# will be +1 past the end of the ideogram
 	#
-	if (
-	    seek_parameter( "spacing_type", $tickdata, $CONF{ticks} ) 
-	    eq "relative" 
-	   ) {
-	  $pos-- if $mb_pos > $mb_pos[0];
+	if (seek_parameter( "spacing_type", $tickdata, $CONF{ticks} ) eq "relative" ) {
+	  #$pos-- if $mb_pos > $mb_pos[0];
 	}
 
 	# 
-	# $pos is no longer Math::BigFloat
+	# Turn $pos into a normal string, from Math::BigFloat
 	# 
+
 	$pos = $pos->bstr if ref($pos) eq "Math::BigFloat";
 
-	# 
-	# tick positions outside of the ideogram are not drawn
-	# 
-	next if !$ideogram->{set}->member($pos);
 	my $tick_angle = getanglepos( $pos, $chr );
-	my $this_tick_radius =
-	  $tick_radius +
-	    unit_parse( ( $tickdata->{offset} || 0 ),
-			$ideogram, undef, $ideogram->{thickness} ) +
-			  unit_parse( ( $CONF{ticks}{offset} || 0 ),
-				      $ideogram, undef, $ideogram->{thickness} );
+	my $this_tick_radius = $tick_radius +
+	  unit_parse( ( $tickdata->{offset} || 0 ), $ideogram, undef, $ideogram->{thickness} ) +
+	    unit_parse( ( $CONF{ticks}{offset} || 0 ), $ideogram, undef, $ideogram->{thickness} );
 
-	# distance to the next tick at the same spacing
-	my $pix_sep =
-	  $this_tick_radius *
-	    $DEG2RAD *
-	      ( $tick_angle -
-		getanglepos( $pos + $tickdata->{spacing}, $chr ) );
+	# calculate the distance across a neighbourhood of 2*pix_sep_n+1 ticks
+	# determine from this the average tick-to-tick distance (use multiple ticks for
+	# the calculation to cope with local scale adjustments).
+	my $tick_color;
+	if (defined seek_parameter("tick_separation", $tickdata, $CONF{ticks})
+	    && $tickdata->{spacing}) {
+	  my $pix_sep_n = 2;
+	  my @pix_sep   = ();
+	  for my $i ( -$pix_sep_n .. $pix_sep_n-1 ) {
+	    next if 
+	      ! $ideogram->{set}->member( $pos + $tickdata->{spacing}*$i )
+		||
+		  ! $ideogram->{set}->member( $pos + $tickdata->{spacing}*($i+1) );
+	    my $d = $this_tick_radius*$DEG2RAD*abs(getanglepos($pos+$tickdata->{spacing}*$i,$chr)
+						   -
+						   getanglepos($pos+$tickdata->{spacing}*($i+1),$chr));
+	    push @pix_sep, $d;
+	  }
+	  my $pix_sep = average(@pix_sep);
+	  $tickdata->{pix_sep} = $pix_sep;
+	  # determine whether to draw the tick based on requirement of minimum tick separation, if defined
+	  my $min_sep = unit_strip(unit_validate(seek_parameter("tick_separation", $tickdata, $CONF{ticks}),
+						 "ticks/tick/tick_separation",
+						 "p"
+						));
+	  # don't draw this tick - move to next one
+	  if($pix_sep < $min_sep) {
+	    $tick_color = "red";
+	    next;
+	  }
+	}
 
 	# distance to closest ideogram edge
-	my $edge_d_start =
-	  $this_tick_radius *
-	    $DEG2RAD *
-	      abs(
-		  $tick_angle - getanglepos( $ideogram->{set}->min, $chr ) );
+	my $edge_d_start = $this_tick_radius*$DEG2RAD*abs($tick_angle-getanglepos($ideogram->{set}->min,$chr));
+	my $edge_d_end   = $this_tick_radius*$DEG2RAD*abs($tick_angle-getanglepos($ideogram->{set}->max,$chr));
+	my $edge_d_min   = int( min( $edge_d_start, $edge_d_end ) );
 
-	my $edge_d_end =
-	  $this_tick_radius *
-	    $DEG2RAD *
-	      abs(
-		  $tick_angle - getanglepos( $ideogram->{set}->max, $chr ) );
-
-	my $edge_d_min = int( min( $edge_d_start, $edge_d_end ) );
-
-	#
-	# determine whether to draw the tick based on
-	# requirement of minimum tick separation, if defined
-	#
-	my $draw_tick = 1;
-	if (
-	    defined seek_parameter(
-				   "tick_separation", $tickdata, $CONF{ticks}
-				  )
-	   ) {
-	  my $pixel_sampling = 0.25;
-
-	  #
-	  # the cover is the extent of the tick (integer
-	  # pixels) along the circumference of the ideogram
-	  # circle we are going to sample every
-	  # $pixel_sampling pixels
-	  #
-	  my $this_tick_cover = Set::IntSpan->new(
-						  round(
-							$this_tick_radius *
-							$tick_angle *
-							$DEG2RAD /
-							$pixel_sampling
-						       )
-						 )->pad(
-							round(
-							      $DIMS->{tick}{$dims_key}{thickness} / 2 /
-							      $pixel_sampling
-							     )
-							|| $pixel_sampling
-						       );
-
-	  my $sep = unit_strip(
-			       unit_validate(
-					     seek_parameter(
-							    "tick_separation", $tickdata, $CONF{ticks}
-							   ),
-					     "ticks/tick/tick_separation",
+	if (my $edge_d = seek_parameter( "min_distance_to_edge", $tickdata, $CONF{ticks} ) ) {
+	  $edge_d = unit_strip(unit_validate($edge_d,
+					     "ticks/tick/min_distance_to_edge",
 					     "p"
-					    )
-			      );
-
-	  if (
-	      $tick_cover->intersect(
-				     $this_tick_cover->pad( $sep / $pixel_sampling )
-				    )->cardinality
-	     ) {
-
-	    # the tick mark itself is too close to another one
-	    $draw_tick = 0;
-	  }
-
-	  $tick_cover = $tick_cover->union($this_tick_cover);
+					    ));
+	  next if $edge_d_min < $edge_d;
 	}
 
 	debug_or_group("ticks") && printdebug(
@@ -6196,30 +6119,24 @@ sub draw_ticks {
 					      sprintf( "%.1f", $tick_angle ),
 					      "textangle",
 					      sprintf( "%.1f", textangle($tick_angle) ),
-					      "tick_d",
-					      sprintf( "%.3f", $pix_sep ),
+					      "d_tick",
+					      sprintf("%.3f",$tickdata->{pix_sep}),
 					      "d_edge",
 					      $edge_d_min,
 					      "thickness",
 					      $DIMS->{tick}{ $tickdata->{dims_key} }{thickness},
 					      "size",
 					      $DIMS->{tick}{ $tickdata->{dims_key} }{size},
-					      "draw",
-					      $draw_tick
 					     );
-
-	next unless $draw_tick;
 
 	my $start_a = getanglepos( $pos, $chr );
 
 	#
 	# register the tick for drawing
 	#
+
 	my ( $r0, $r1 );
-	if ( 
-	    seek_parameter( "orientation", $tickdata, $CONF{ticks} ) 
-	    eq "in"
-	   ) {
+	if ( seek_parameter( "orientation", $tickdata, $CONF{ticks} ) eq "in" ) {
 	  $r0 = $this_tick_radius - $DIMS->{tick}{$dims_key}{size};
 	  $r1 = $this_tick_radius;
 	} else {
@@ -6227,327 +6144,203 @@ sub draw_ticks {
 	  $r1 = $this_tick_radius + $DIMS->{tick}{$dims_key}{size};
 	}
 
-	push @ticks, {
-		      do_not_draw => $do_not_draw,
-		      tickdata    => $tickdata,
-		      r0          => $r0,
-		      r1          => $r1,
-		      a           => $tick_angle,
-		      pos         => $pos,
-		      coordinates => [
-				      getxypos( $tick_angle, $r0 ),
-				      getxypos( $tick_angle, $r1 )
-				     ],
-		     };
-
+	my $tick_group_entry = {
+				do_not_draw => $do_not_draw,
+				tickdata    => $tickdata,
+				color       => $tick_color,
+				r0          => $r0,
+				r1          => $r1,
+				a           => $tick_angle,
+				pos         => $pos,
+				coordinates => [getxypos( $tick_angle, $r0 ),
+						getxypos( $tick_angle, $r1 )],
+			       };
+	
 	#
 	# now check whether we want to draw the label, and if
 	# so, add the label data to the tick's registration in
 	# @ticks
 	#
-	if (   $CONF{show_tick_labels}
-	       && seek_parameter( "show_label", $tickdata, $CONF{ticks} )
-	       && $edge_d_min >=
-	       $DIMS->{tick}{$dims_key}{min_label_distance_to_edge} 
-	   ) {
+
+	if ( $CONF{show_tick_labels}
+	     && seek_parameter( "show_label", $tickdata, $CONF{ticks} )
+	     && $edge_d_min >= $DIMS->{tick}{$dims_key}{min_label_distance_to_edge} ) {
 	  my $tick_label;
-	  my $multiplier = unit_parse(
-				      seek_parameter(
-						     "multiplier|label_multiplier", $tickdata,
-						     $CONF{ticks}
-						    )
-				     ) || 1;
-
-	  my $rmultiplier = unit_parse(
-				       seek_parameter(
-						      "rmultiplier|label_rmultiplier", $tickdata,
-						      $CONF{ticks}
-						     )
-				      ) || 1;
-
+	  my $multiplier  = unit_parse(seek_parameter("multiplier|label_multiplier", $tickdata, $CONF{ticks} ) ) || 1;
+	  my $rmultiplier = unit_parse(seek_parameter("rmultiplier|label_rmultiplier", $tickdata, $CONF{ticks})) || 1;
 	  #
-	  # position, relative to ideogram size, or
-	  # chromosome size, as requested by
+	  # position, relative to ideogram size, or chromosome size, as requested by
 	  #
 	  my $pos_relative;
-	  if (
-	      seek_parameter(
-			     "rdivisor|label_rdivisor", $tickdata,
-			     $CONF{ticks}
-			    ) eq "ideogram"
-	     ) {
+	  if (seek_parameter("rdivisor|label_rdivisor", $tickdata, $CONF{ticks}) eq "ideogram" ) {
 	    $pos_relative = $mb_pos - $ideogram->{set}->min;
-	    $pos_relative /= ( $ideogram->{set}->cardinality - 1 );
+	    $pos_relative /= ( $ideogram->{set}->cardinality );
 	  } else {
 	    $pos_relative = $mb_pos / $ideogram->{chrlength};
 	  }
 
 	  # do we want a relative label? (e.g. 0.3 instead of 25?)
-	  my $label_relative =
-	    seek_parameter( "label_relative", $tickdata,
-			    $CONF{ticks} );
-
+	  my $label_relative = seek_parameter( "label_relative", $tickdata, $CONF{ticks} );
 	  my $precision = 0.001;
-	  if (
-	      defined seek_parameter( "mod", $tickdata, $CONF{ticks} )
-	     ) {
-	    my $mod =
-	      unit_parse(
-			 seek_parameter( "mod", $tickdata, $CONF{ticks} ) );
+	  if ( defined seek_parameter( "mod", $tickdata, $CONF{ticks} ) ) {
+	    my $mod = unit_parse(seek_parameter( "mod", $tickdata, $CONF{ticks} ) );
 	    $pos_relative = ( $mb_pos % $mod ) / $mod;
-
 	    if ($label_relative) {
-	      $tick_label = sprintf(
-				    seek_parameter(
-						   "format", $tickdata, $CONF{ticks}
-						  ),
-				    $pos_relative * $rmultiplier
-				   );
+	      $tick_label = sprintf(seek_parameter("format", $tickdata, $CONF{ticks}),
+				    $pos_relative * $rmultiplier);
 	    } else {
-	      $tick_label = sprintf(
-				    seek_parameter(
-						   "format", $tickdata, $CONF{ticks}
-						  ),
-				    ( $mb_pos % $mod ) * $multiplier
-				   );
+	      $tick_label = sprintf(seek_parameter("format", $tickdata, $CONF{ticks}),
+				    ( $mb_pos % $mod ) * $multiplier );
 	    }
 	  } else {
 	    if ($label_relative) {
-	      $tick_label = sprintf(
-				    seek_parameter(
-						   "format", $tickdata, $CONF{ticks}
-						  ),
-				    $pos_relative * $rmultiplier
-				   );
+	      $tick_label = sprintf(seek_parameter("format", $tickdata, $CONF{ticks}),
+				    $pos_relative * $rmultiplier);
 	    } else {
-	      $tick_label = sprintf(
-				    seek_parameter(
-						   "format", $tickdata, $CONF{ticks}
-						  ),
-				    $mb_pos * $multiplier
-				   );
+	      $tick_label = sprintf(seek_parameter("format", $tickdata, $CONF{ticks}),
+				    $mb_pos * $multiplier);
 	    }
 	  }
 
-	  if (
-	      defined seek_parameter(
-				     "thousands_sep|thousands_separator", $tickdata,
-				     $CONF{ticks}
-				    )
-	     ) {
+	  if (defined seek_parameter("thousands_sep|thousands_separator", $tickdata,$CONF{ticks})) {
 	    $tick_label = add_thousands_separator($tick_label);
 	  }
+	  if (defined seek_parameter( "suffix", $tickdata, $CONF{ticks} ) ) {
+	    $tick_label .= seek_parameter( "suffix", $tickdata, $CONF{ticks} );
+	  }
+	  if (defined seek_parameter( "prefix", $tickdata, $CONF{ticks} )) {
+	    $tick_label = seek_parameter( "prefix", $tickdata, $CONF{ticks} ) . $tick_label;
+	  }
+	  $tick_label = seek_parameter( "label", $tickdata ) if defined seek_parameter( "label", $tickdata );
+	  my $tickfont     = seek_parameter( "tick_label_font", $tickdata, $CONF{ticks} ) || "default";
+	  my $tickfontfile = locate_file(file => $CONF{fonts}{ $tickfont } );
+	  my $label_size   = unit_convert(from => unit_validate(seek_parameter("label_size", $tickdata, $CONF{ticks}),
+								"ticks/tick/label_size",
+								qw(p r)
+							       ),
+					  to      => "p",
+					  factors => { rp => $DIMS->{tick}{$dims_key}{size} });
+	  my @label_bounds = label_bounds($tickfontfile,$label_size,$tick_label);#$GD::Image->stringFT( $COLORS->{black}, $tickfontfile, $label_size, 0, 0, 0, $tick_label );
+	  my ( $label_width, $label_height ) = text_label_size(@label_bounds);
 
-	  if (
-	      defined seek_parameter( "suffix", $tickdata,
-				      $CONF{ticks} ) 
-	     ) {
-	    $tick_label .=
-	      seek_parameter( "suffix", $tickdata, $CONF{ticks} );
+	  my $label_offset;
+	  if ( my $offset =  seek_parameter( "label_offset", $CONF{ticks} )) {
+	    $label_offset += unit_parse( $offset, $ideogram, undef, $DIMS->{tick}{$dims_key}{size} );
+	  }
+	  if ( my $offset = seek_parameter( "label_offset", $tickdata )) {
+	    $label_offset += unit_parse( $offset, $ideogram, undef, $DIMS->{tick}{$dims_key}{size} );
 	  }
 
-	  if (
-	      defined seek_parameter( "prefix", $tickdata,
-				      $CONF{ticks} )
-	     ) {
-	    $tick_label =
-	      seek_parameter( "prefix", $tickdata, $CONF{ticks} )
-		. $tick_label;
+	  #
+	  # label offset is no longer cumulative v0.47 Unless
+	  # individual offset values are applied, distance of tick
+	  # label to tick radius is based on the longest tick
+	  # (max_tick_length).  The label_offset parameter is used
+	  # to adjust label position.
+	  #
+
+	  my $tick_label_radius;
+	  if (seek_parameter( "orientation", $tickdata,$CONF{ticks} ) eq "in") {
+	    $tick_label_radius = $tick_group_entry->{r0} - $label_offset - $label_width; # - $max_tick_length
+	  } else {
+	    $tick_label_radius = $tick_group_entry->{r1} + $label_offset; # + $max_tick_length
 	  }
 
-	  my $tickfontfile = locate_file(
-					 file => $CONF{fonts}{
-					   seek_parameter( "tick_label_font", $tickdata,
-							   $CONF{ticks} )
-					     || "default"
-					   }
-					);
+	  my ( $offset_angle, $offset_radius ) =
+	    textoffset( getanglepos( $pos, $chr ),
+			$tick_label_radius, $label_width, $label_height );
 
-	  my $label_size = unit_convert(
-					from => unit_validate(
-							      seek_parameter(
-									     "label_size", $tickdata, $CONF{ticks}
-									    ),
-							      "ticks/tick/label_size",
-							      qw(p r)
-							     ),
-					to      => "p",
-					factors => { rp => $DIMS->{tick}{$dims_key}{size} }
-				       );
+	  debug_or_group("ticks") && printdebug(
+						"ticklabel",
+						$tick_label,
+						"tickpos",
+						$pos,
+						"angle",
+						$tick_angle + $offset_angle,
+						"radius",
+						$tick_label_radius + $offset_radius,
+						"offseta",
+						$offset_angle,
+						"offsetr",
+						$offset_radius,
+						"params",
+						getanglepos( $pos, $chr ),
+						$tick_label_radius,
+						$label_width,
+						$label_height
+					       );
 
-	  my @label_bounds =
-	    GD::Image->stringFT( $COLORS->{black}, $tickfontfile,
-				 $label_size, 0, 0, 0, $tick_label );
-
-	  my ( $label_width, $label_height ) =
-	    text_label_size(@label_bounds);
-
-	  # check whether labels would overlap
-	  my $draw_label = 1;
-	  if (
-	      my $sep = seek_parameter(
-				       "label_separation", $tickdata, $CONF{ticks}
-				      )
-	     ) {
-	    $sep = unit_strip(
-			      unit_validate(
-					    $sep, "ticks/label_separation", "p"
-					   )
-			     );
-
-	    my $this_tick_label_cover = Set::IntSpan->new(
-							  sprintf(
-								  "%d-%d",
-								  round(
-									$this_tick_radius * $tick_angle * $DEG2RAD -
-									$label_height / 2
-								       ),
-								  round(
-									$this_tick_radius * $tick_angle * $DEG2RAD +
-									$label_height / 2
-								       )
-								 )
-							 );
-
-	    if (
-		$tick_label_cover->intersect(
-					     $this_tick_label_cover->pad($sep)
-					    )->cardinality
-	       ) {
-	      $draw_label = 0;
-	    } else {
-	      $tick_label_cover =
-		$tick_label_cover->union($this_tick_label_cover);
-	    }
-	  }
-
-	  if ($draw_label && ! $do_not_draw) {
-	    my $label_offset;
-	    if ( my $offset =
-		 seek_parameter( "label_offset", $CONF{ticks} ) 
-	       ) {
-	      $label_offset +=
-		unit_parse( $offset, $ideogram, undef,
-			    $DIMS->{tick}{$dims_key}{size} );
-	    }
-
-	    if ( my $offset =
-		 seek_parameter( "label_offset", $tickdata )
-	       ) {
-	      $label_offset +=
-		unit_parse( $offset, $ideogram, undef,
-			    $DIMS->{tick}{$dims_key}{size} );
-	    }
-
-	    # 
-	    # label offset is no longer cumulative v0.47
-	    # Unless individual offset values are applied,
-	    # distance of tick label to tick radius is
-	    # based on the longest tick (max_tick_length).
-	    # The label_offset parameter is used to adjust
-	    # label position.
-	    # 
-	    my $tick_label_radius;
-	    if (
-		seek_parameter( "orientation", $tickdata,
-                                $CONF{ticks} ) eq "in"
-	       ) {
-	      $tick_label_radius =
-		$ticks[-1]{r0} -
-		  $label_offset -
-		    $label_width; # - $max_tick_length
-	    } else {
-	      $tick_label_radius =
-		$ticks[-1]{r1} +
-		  $label_offset; # + $max_tick_length
-	    }
-
-	    my ( $offset_angle, $offset_radius ) =
-	      textoffset( getanglepos( $pos, $chr ),
-			  $tick_label_radius, $label_width, $label_height );
-
-	    debug_or_group("ticks") && printdebug(
-						  "ticklabel",
-						  $tick_label,
-						  "tickpos",
-						  $pos,
-						  "angle",
-						  $tick_angle + $offset_angle,
-						  "radius",
-						  $tick_label_radius + $offset_radius,
-						  "offseta",
-						  $offset_angle,
-						  "offsetr",
-						  $offset_radius,
-						  "params",
-						  getanglepos( $pos, $chr ),
-						  $tick_label_radius,
-						  $label_width,
-						  $label_height
-						 );
-
-	    $ticks[-1]{labeldata} = {
-				     font  => $tickfontfile,
-				     color => seek_parameter(
-							     "label_color|color", $tickdata,
-							     $CONF{ticks}
-							    ),
-				     size   => $label_size,
-				     pangle => $tick_angle, # + $offset_angle,
-				     radius => $tick_label_radius + $offset_radius,
-				     angle  => $DEG2RAD * textangle($tick_angle),
-				     xy     => [
-						getxypos(
-							 $tick_angle + $offset_angle,
-							 $tick_label_radius + $offset_radius
-							)
-					       ],
-				     svgxy => [
-					       getxypos(
-							$tick_angle +
-							$offset_angle / $CONF{svg_font_scale},
-							$tick_label_radius
-						       )
-					      ],
-				     svgangle => textanglesvg($tick_angle),
-				     text     => $tick_label,
-				     chr      => $chr,
-				     start    => $pos,
-				     end      => $pos,
-				    };
-	  }
+	  $tick_group_entry->{labeldata} = {
+					    label_separation => seek_parameter("label_separation", $tickdata, $CONF{ticks}),
+					    font   => $tickfontfile,
+					    color  => seek_parameter("label_color|color", $tickdata,$CONF{ticks}),
+					    size   => $label_size,
+					    pangle => $tick_angle, # + $offset_angle,
+					    radius => $tick_label_radius + $offset_radius,
+					    angle  => $DEG2RAD * textangle($tick_angle),
+					    xy     => [getxypos($tick_angle + $offset_angle,
+								$tick_label_radius + $offset_radius)],
+					    svgxy => [getxypos($tick_angle + $offset_angle / $CONF{svg_font_scale},
+							       $tick_label_radius
+							      )],
+					    svgangle => textanglesvg($tick_angle),
+					    text     => $tick_label,
+					    chr      => $chr,
+					    start    => $pos,
+					    end      => $pos,
+					    start_a  => $tick_radius*$tick_angle*$DEG2RAD - $label_height / 2,
+					    end_a    => $tick_radius*$tick_angle*$DEG2RAD + $label_height / 2,
+					   };
 	}
-
+	
 	if ( $CONF{show_grid} ) {
 	  if ( $tickdata->{grid} ) {
-	    my $grid_r1 = unit_parse(
-				     seek_parameter(
-						    "grid_start", $tickdata,
-						    $CONF{ticks}, \%CONF
-						   ),
-				     $ideogram
-				    );
-	    my $grid_r2 = unit_parse(
-				     seek_parameter(
-						    "grid_end", $tickdata, $CONF{ticks}, \%CONF
-						   ),
-				     $ideogram
-				    );
-	    $ticks[-1]{griddata}{coordinates} = [
-						 getxypos( $start_a, $grid_r1 ),
-						 getxypos( $start_a, $grid_r2 )
-						];
-	    $ticks[-1]{griddata}{r0} = $grid_r1;
-	    $ticks[-1]{griddata}{r1} = $grid_r2;
+	    my $grid_r1 = unit_parse(seek_parameter("grid_start", $tickdata, $CONF{ticks}, \%CONF),$ideogram);
+	    my $grid_r2 = unit_parse(seek_parameter("grid_end",   $tickdata, $CONF{ticks}, \%CONF),$ideogram);
+	    $tick_group_entry->{griddata}{coordinates} = [getxypos( $start_a, $grid_r1 ),
+							  getxypos( $start_a, $grid_r2 )];
+	    $tick_group_entry->{griddata}{r0} = $grid_r1;
+	    $tick_group_entry->{griddata}{r1} = $grid_r2;
+	  }
+	}
+	push @ticks, $tick_group_entry;
+	push @{$tick_groups->{ $tickdata->{spacing} }{ $tick_radius}}, $tick_group_entry;
+      }
+    }
+  }
+  
+  my ($first_label_idx) = grep( $ticks[$_]{labeldata}, ( 0 .. @ticks - 1 ) );
+  my ($last_label_idx)  = grep( $ticks[$_]{labeldata}, reverse( 0 .. @ticks - 1 ) );
+  my @tick_idx = sort { $ticks[$a]{pos} <=> $ticks[$b]{pos} } ( 0 .. @ticks - 1 );
+
+  # determine whether labels of ticks within a spacing group overlaps
+  for my $spacing (keys %$tick_groups) {
+    for my $radius (keys %{$tick_groups->{$spacing}}) {
+      my @tick_with_label = grep($_->{labeldata}, @{$tick_groups->{$spacing}{$radius}});
+      my $label_color;
+      if (my $sep = $tick_with_label[0]{labeldata}{label_separation}) {
+	$sep = unit_strip(unit_validate($sep, "ticks/label_separation", "p"));
+	if($sep) {
+	  for my $tick_idx (0..@tick_with_label-1) {
+	    my $prev_check = $tick_idx ? 
+	      $tick_with_label[$tick_idx]{labeldata}{start_a}-$tick_with_label[$tick_idx-1]{labeldata}{end_a}
+		: undef;
+	    my $next_check = $tick_idx < @tick_with_label-1 ?
+	      $tick_with_label[$tick_idx+1]{labeldata}{start_a}-$tick_with_label[$tick_idx]{labeldata}{end_a}
+		: undef;
+	    if( ( ! defined $prev_check || $prev_check >= $sep)
+		&&
+		( ! defined $next_check || $next_check >= $sep) ) {
+	      # tick label is sufficiently far from neighbours
+	    } else {
+	      $tick_with_label[$tick_idx]{labeldata}{do_not_draw} = 1;
+	      $tick_with_label[$tick_idx]{labeldata}{color}       = "red";
+	    }
 	  }
 	}
       }
     }
   }
-
-  my ($first_label_idx) = grep( $ticks[$_]{labeldata}, ( 0 .. @ticks - 1 ) );
-  my ($last_label_idx)  = grep( $ticks[$_]{labeldata}, reverse( 0 .. @ticks - 1 ) );
-  my @tick_idx = sort { $ticks[$a]{pos} <=> $ticks[$b]{pos} } ( 0 .. @ticks - 1 );
 
   # group url-ticks by r0
 
@@ -6562,107 +6355,94 @@ sub draw_ticks {
   }
   
   # create image map regions
-
+  
   for my $tick_r0 (sort {$a <=> $b} keys %$tick_idx_map) {
     for my $tick_spacing (sort {$a <=> $b} keys %{$tick_idx_map->{$tick_r0}}) {
       my @tick_idx_map = @{$tick_idx_map->{$tick_r0}{$tick_spacing}};
-    for my $tick_idx ( @tick_idx_map ) {
-      my $tick     = $ticks[$tick_idx];
-      next unless $tick->{r0} == $tick_r0;
-      my $tickdata = $tick->{tickdata};
-      #printinfo($tick->{pos});
-      if($tickdata->{url}) {
-	my @pos_pairs;
-	if($tick_idx == $tick_idx_map[0]) {
-	  # this is the first tick - check to extend the
-	  # map element back to the start of the ideogram if this
-	  # tick is not at the start of the ideogram
-	  if($tick->{pos} > $ideogram->{set}->min) {
+      for my $tick_idx ( @tick_idx_map ) {
+	my $tick     = $ticks[$tick_idx];
+	next unless $tick->{r0} == $tick_r0;
+	my $tickdata = $tick->{tickdata};
+	#printinfo($tick->{pos});
+	if($tickdata->{url}) {
+	  my @pos_pairs;
+	  if($tick_idx == $tick_idx_map[0]) {
+	    # this is the first tick - check to extend the
+	    # map element back to the start of the ideogram if this
+	    # tick is not at the start of the ideogram
+	    if($tick->{pos} > $ideogram->{set}->min) {
+	      my $pos = $tick->{pos};
+	      my $prev_pos = $ideogram->{set}->min;
+	      push @pos_pairs,[$prev_pos,$pos];
+	    }
+	  } else {
+	    my $prev_tick = $ticks[$tick_idx-1];
 	    my $pos = $tick->{pos};
-	    my $prev_pos = $ideogram->{set}->min;
+	    my $prev_pos = $prev_tick->{pos};
 	    push @pos_pairs,[$prev_pos,$pos];
+	  }
+	  if($tick_idx == @tick_idx_map[-1]) {
+	    if($tick->{pos} < $ideogram->{set}->max) {
+	      my $prev_pos = $tick->{pos};
+	      my $pos = $ideogram->{set}->max;
+	      push @pos_pairs, [$prev_pos,$pos];
+	    }
+	  }
+	  for my $pos_pair (@pos_pairs) {
+	    my ($prev_pos,$pos) = @$pos_pair;
+	    my $url = seek_parameter("url",$tickdata,$CONF{ticks});
+	    $url = format_url(url=>$url,param_path=>[$tickdata,
+						     $tick,
+						     {start=>$prev_pos,
+						      end=>$pos},
+						    ]);
+	    my ($r0,$r1);
+	    if($tickdata->{map_radius_inner}) {
+	      $r0 = unit_parse($tickdata->{map_radius_inner},$ideogram);
+	    } else {
+	      $r0 = $tick->{r0};
+	    }
+	    if($tickdata->{map_radius_outer}) {
+	      $r1 = unit_parse($tickdata->{map_radius_outer},$ideogram);
+	    } elsif($tickdata->{map_size}) {
+	      my $map_size = unit_strip(unit_validate(seek_parameter("map_size", $tickdata, $CONF{ticks}),
+						      "ticks/tick/map_size","p"
+						     )
+				       );
+	      $r1 = $r0 + $map_size;
+	    } else {
+	      $r1 = $tick->{r1};
+	    }
+	    #printinfo("tickmap",$r0,$r1);
+	    slice(
+		  image       => $IM,
+		  start       => $prev_pos,
+		  end         => $pos,
+		  chr         => $chr,
+		  radius_from => $r0,
+		  radius_to   => $r1,
+		  edgecolor   => undef,
+		  edgestroke  => undef,
+		  fillcolor   => undef,
+		  mapoptions => { url=>$url },
+		 );
+	  }
 	}
-      } else {
-	my $prev_tick = $ticks[$tick_idx-1];
-  	my $pos = $tick->{pos};
-	my $prev_pos = $prev_tick->{pos};
-	push @pos_pairs,[$prev_pos,$pos];
-      }
-      if($tick_idx == @tick_idx_map[-1]) {
-	if($tick->{pos} < $ideogram->{set}->max) {
-	  my $prev_pos = $tick->{pos};
-	  my $pos = $ideogram->{set}->max;
-	  push @pos_pairs, [$prev_pos,$pos];
-	}
-      }
-      for my $pos_pair (@pos_pairs) {
-	my ($prev_pos,$pos) = @$pos_pair;
-	my $url = seek_parameter("url",$tickdata,$CONF{ticks});
-	$url = format_url(url=>$url,param_path=>[$tickdata,
-						 $tick,
-						 {start=>$prev_pos,
-						  end=>$pos},
-						]);
-	my ($r0,$r1);
-	if($tickdata->{map_radius_inner}) {
-	  $r0 = unit_parse($tickdata->{map_radius_inner},$ideogram);
-	} else {
-	  $r0 = $tick->{r0};
-	}
-	if($tickdata->{map_radius_outer}) {
-	  $r1 = unit_parse($tickdata->{map_radius_outer},$ideogram);
-	} elsif($tickdata->{map_size}) {
-	  my $map_size = unit_strip(unit_validate(seek_parameter("map_size", $tickdata, $CONF{ticks}),
-						  "ticks/tick/map_size","p"
-						 )
-				   );
-	  $r1 = $r0 + $map_size;
-	} else {
-	  $r1 = $tick->{r1};
-	}
-	#printinfo("tickmap",$r0,$r1);
-	slice(
-	      image       => $IM,
-	      start       => $prev_pos,
-	      end         => $pos,
-	      chr         => $chr,
-	      radius_from => $r0,
-	      radius_to   => $r1,
-	      edgecolor   => undef,
-	      edgestroke  => undef,
-	      fillcolor   => undef,
-	      mapoptions => { url=>$url },
-	     );
       }
     }
   }
-  }
-  }
-
+  
   # draw the ticks
   for my $tick_idx ( @tick_idx ) {
-
+    
     my $tick     = $ticks[$tick_idx];
     my $tickdata = $tick->{tickdata};
-
     next if $tick->{do_not_draw};
-    next if $tick_idx == $first_label_idx && $CONF{ticks}{skip_first_label};
-    next if $tick_idx == $last_label_idx  && $CONF{ticks}{skip_last_label};
-
     draw_line(
 	      $tick->{coordinates},
 	      $DIMS->{tick}{ $tickdata->{dims_key} }{thickness} || 1,
-	      seek_parameter( "color", $tickdata, $CONF{ticks} ),
+	      $tick->{color}||seek_parameter( "color", $tickdata, $CONF{ticks} ),
 	     );
-
-    if ( $tick->{labeldata} ) {
-      draw_text(
-                image => $IM,
-                %{ $tick->{labeldata} },
-                mapoptions => {}
-	       );
-    }
-
     if ( $tick->{griddata} ) {
       draw_line(
                 $tick->{griddata}{coordinates},
@@ -6671,11 +6451,25 @@ sub draw_ticks {
 		|| seek_parameter( "color", $tickdata, $CONF{ticks} ),
 	       );
     }
-
-
+    if ( $tick->{labeldata} ) {
+      next if $tick_idx == $first_label_idx && $CONF{ticks}{skip_first_label};
+      next if $tick_idx == $last_label_idx  && $CONF{ticks}{skip_last_label};
+      next if $tick->{labeldata}{do_not_draw};
+      draw_text(
+                image => $IM,
+                %{ $tick->{labeldata} },
+                mapoptions => {}
+	       );
+    }
   }
 }
 
+sub label_bounds {
+  # return bounds for a text box
+  my ($font,$size,$text) = @_;
+  my @bounds = GD::Image->stringFT($COLORS->{black},$font,$size,0,0,0,$text);
+  return @bounds;
+}
 # -------------------------------------------------------------------
 sub process_tick_structure {
   # do some up-front munging of the tick data structures
@@ -6689,11 +6483,8 @@ sub process_tick_structure {
       croak "error processing tick - this tick's spacing_type is ",
 	"set to relative, but no rspacing or rposition parameter is set";
     }
-
     if ( seek_parameter( "rspacing", $tick, $CONF{ticks} ) ) {
-      if ( unit_validate(seek_parameter( "rspacing", $tick, $CONF{ticks} ),
-			 "ticks/tick/rspacing", qw(n))
-	 ) {
+      if ( unit_validate(seek_parameter( "rspacing", $tick, $CONF{ticks} ),"ticks/tick/rspacing", qw(n)) ) {
 	my $mb_rspacing = Math::BigFloat->new(seek_parameter( "rspacing", $tick, $CONF{ticks} ) );
 
 	#
@@ -6704,19 +6495,15 @@ sub process_tick_structure {
 	# (rdivisor=ideogram), the spacing is relative to the
 	# ideogram
 	#
-	if (
-	    seek_parameter( "rdivisor|label_rdivisor", $tick,
-			    $CONF{ticks} ) eq "ideogram"
-	   ) {
-	  $tick->{spacing} =
-	    $mb_rspacing * $ideogram->{set}->cardinality;
+	if (seek_parameter( "rdivisor|label_rdivisor", $tick,$CONF{ticks} ) eq "ideogram" ) {
+	  $tick->{spacing} = $mb_rspacing * $ideogram->{set}->cardinality;
 	} else {
 	  $tick->{spacing} = $mb_rspacing * $ideogram->{chrlength};
 	}
-
 	# at this point, spacing does not have to be an integer
 	$tick->{spacing} = $tick->{spacing}->bstr;
       }
+      #printinfo("spacingdet",$tick->{spacing});
     } elsif ( seek_parameter( "rposition", $tick, $CONF{ticks} ) ) {
       my @rpos =
 	map { unit_validate( $_, "ticks/tick/rposition", qw(n) ) }
@@ -6738,29 +6525,29 @@ sub process_tick_structure {
       $tick->{position} = \@rpos;
     }
   } else {
-    if ( !$tick->{_processed} ) {
+    if ( ! $tick->{_processed} ) {
       if ( seek_parameter( "spacing", $tick, $CONF{ticks} ) ) {
-	$tick->{spacing} = unit_convert(
-					from => unit_validate(
-							      seek_parameter( "spacing", $tick, $CONF{ticks} ),
-							      "ticks/tick/spacing", qw(u b)
-							     ),
+	$tick->{spacing} = unit_convert(from    => unit_validate(seek_parameter( "spacing", $tick, $CONF{ticks} ),
+								 "ticks/tick/spacing", qw(u b)),
 					to      => "b",
 					factors => { ub => $CONF{chromosomes_units} }
 				       );
       } elsif ( seek_parameter( "position", $tick, $CONF{ticks} ) ) {
-	my @pos =
-	  split( /,/,
-		 seek_parameter( "position", $tick, $CONF{ticks} ) );
-	@pos = map {
-	  unit_convert(
-		       from =>
-		       unit_validate( $_, "ticks/tick/position", qw(u b) ),
-		       to      => "b",
-		       factors => { ub => $CONF{chromosomes_units} }
-                      )
-	} @pos;
+	my @pos;
+	for my $pos (split( /,/,seek_parameter( "position", $tick, $CONF{ticks} ) )) {
+	  if($pos eq "start") {
+	    $pos = $ideogram->{set}->min . "b";
+	  } elsif ($pos eq "end") {
+	    $pos = $ideogram->{set}->max . "b";
+	  } 
+	  push @pos, $pos;
+	}
+	@pos = map { unit_convert( from    => unit_validate( $_, "ticks/tick/position", qw(u b) ),
+				   to      => "b",
+				   factors => { ub => $CONF{chromosomes_units} }
+				 ) } @pos;
 	$tick->{position} = \@pos;
+	#$tick->{spacing} = join(",",@pos).$tick->{radius};
       } else {
 	croak "error processing tick - this tick's spacing_type is ",
 	  "set to absolute, but no spacing or position parameter is set";
@@ -7468,6 +7255,9 @@ sub draw_text {
             chr           => 1,
             start         => 1,
             end           => 1,
+            start_a       => 0,
+            end_a         => 0,
+	    label_separation=>0,
             mapoptions    => { type => HASHREF, optional => 1 },
 	   }
 	  );
