@@ -84,6 +84,12 @@ Circos->run(%OPT);
 
 Martin Krzywinski E<lt>martink@bcgsc.caE<gt>
 
+=head1 CITING
+
+If you are using Circos in a publication, please cite as
+
+Krzywinski, M., J. Schein, I. Birol, J. Connors, R. Gascoyne, D. Horsman, S. Jones, and M. Marra. 2009. Circos: an Information Aesthetic for Comparative Genomics. Genome Res (in press).
+
 =head1 CONTRIBUTORS
 
 Ken Youens-Clark E<lt>kyclark@gmail.comE<gt>
