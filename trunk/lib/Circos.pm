@@ -8043,7 +8043,7 @@ sub ribbon {
 			       getanglepos( $params{end},   $params{chr} )
 			      );
 
-    printdumper(\%params,$start_a,$end_a);
+    #printdumper(\%params,$start_a,$end_a);
 
     if ( $end_a < $start_a ) {
       ( $start_a, $end_a ) = ( $end_a, $start_a );
