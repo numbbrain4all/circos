@@ -64,11 +64,17 @@ sub parse_label {
   }
   return shorten_text($string);
 }
+
 sub shorten_text {
   my $string = shift;
   if($CONF{shorten_text}) {
-    for my $word (sort {length($b) <=> length($a)} keys %{$CONF{string_replace}}) {
-      $string =~ s/$word/$CONF{string_replace}{$word}/i;
+    if(ref($CONF{string_replace}) eq "HASH") {
+      for my $word (sort {length($b) <=> length($a)} keys %{$CONF{string_replace}}) {
+	$string =~ s/$word/$CONF{string_replace}{$word}/i;
+      }
+    } else {
+      print Dumper($CONF{string_replace});
+      die "You've set shorten_text=yes but do not have the required <string_replace> block that defines the replacement strings.";
     }
   }
   return $string;

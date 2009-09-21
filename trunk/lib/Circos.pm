@@ -395,7 +395,7 @@ or a hashref of the configuration options.
       my $subzoom_size = $d / $n;
       for my $i ( 1 .. $n ) {
 	my $subzoom_scale = ( $zoom->{scale} * ( $n + 1 - $i ) + $ideogram->{scale} * $i ) / ( $n + 1 );
-	printinfo($d,$n,$subzoom_size,$i,$subzoom_scale);
+	#printinfo($d,$n,$subzoom_size,$i,$subzoom_scale);
 	my $subzoom_start = $zoom->{set}->min - $i * $subzoom_size;
 	my $subzoom_end   = $subzoom_start + $subzoom_size;
 	push @zooms_smoothers,
@@ -3976,10 +3976,9 @@ or a hashref of the configuration options.
 	  } elsif ( $value < $plot_min ) {
 	    $color_index = 0;
 	  } elsif ( seek_parameter( "scale_log_base", @param_path ) ) {
-	    my $base =
-	      seek_parameter( "scale_log_base", @param_path );
-	    my $f =
-	      ( $value - $plot_min ) / ( $plot_max - $plot_min );
+	    my $base = seek_parameter( "scale_log_base", @param_path );
+	    die "The scale_log_base parameter for a heat map cannot be zero or negative. Please change it to a non-zero positive value or remove it." unless $base>0;
+	    my $f = ( $value - $plot_min ) / ( $plot_max - $plot_min );
 	    my $flog = $f**( 1 / $base );
 	    $color_index = ( @colors - 1 ) * $flog;
 	  } else {
@@ -7530,7 +7529,7 @@ sub allocate_colors {
   for my $color ( keys %{ $CONF{colors} } ) {
     my $colorvalue = $CONF{colors}{$color};
     if ( $colorvalue !~ /,/ && exists $colors->{$colorvalue} ) {
-      printinfo( $color, $colorvalue );
+      #printinfo( $color, $colorvalue );
       $colors->{$color} = $colors->{$colorvalue};
       $CONF{colors}{$color} = $CONF{colors}{$colorvalue};
     }
