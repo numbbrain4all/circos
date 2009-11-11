@@ -1,3 +1,5 @@
+# Human chromsome sizes and cytogenetic band position.
+# Data based on hg18 assembly.
 chr - hs1 1 0 247249719 green
 chr - hs2 2 0 242951149 green
 chr - hs3 3 0 199501827 green
