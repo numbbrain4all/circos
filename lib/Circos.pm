@@ -186,15 +186,12 @@ or a hashref of the configuration options.
 	  );
 
   ################################################################
-  # read karyotype
+  # Read karyotype and populate the KARYOTYPE data structure which
+  # stores information about chromosomes and bands. 
 
   $KARYOTYPE = read_karyotype( file => $CONF{karyotype} );
   validate_karyotype( karyotype => $KARYOTYPE );
-  printdebug(
-	     "got cytogenetic information for",
-	     int( keys %$KARYOTYPE ),
-	     "chromosomes"
-	    );
+  printdebug("got cytogenetic information for",int( keys %$KARYOTYPE ),"chromosomes");
 
   ################################################################
   # determine the chromosomes to be shown and their regions;
@@ -286,8 +283,6 @@ or a hashref of the configuration options.
   #print Dumper($chrorder_groups);
   set_display_index($chrorder_groups);
 
-  #exit;
-
   #print Dumper($chrorder_groups);
 
   ################################################################
@@ -301,13 +296,17 @@ or a hashref of the configuration options.
   reform_chrorder_groups($chrorder_groups);
 
   #print Dumper($chrorder_groups);
+  #print Dumper(@IDEOGRAMS);
+  #printdumper($chrorder_groups);
+  #exit;
   recompute_chrorder_groups($chrorder_groups);
+  exit;
 
   #print Dumper($chrorder_groups);
   #exit;
 
   @IDEOGRAMS = sort { $a->{display_idx} <=> $b->{display_idx} } @IDEOGRAMS;
-
+  
   # for each ideogram, record
   #  - prev/next ideogram
   #  - whether axis breaks may be required at ends
@@ -705,9 +704,7 @@ or a hashref of the configuration options.
 	  radius_to   => $DIMS->{ideogram}{ $ideogram->{tag} }{radius_outer},
 	  edgecolor   => $CONF{ideogram}{stroke_color},
 	  edgestroke  => $CONF{ideogram}{stroke_thickness},
-	  fillcolor   => $CONF{ideogram}{fill}
-	  ? ( $KARYOTYPE->{$chr}{chr}{color} || $CONF{ideogram}{fill_color} )
-	  : undef,
+	  fillcolor   => $CONF{ideogram}{fill} ? ( $KARYOTYPE->{$chr}{chr}{color} || $CONF{ideogram}{fill_color} ) : undef,
 	  mapoptions => { url=>$url },
 	 );
 
@@ -3982,10 +3979,8 @@ or a hashref of the configuration options.
 	    my $flog = $f**( 1 / $base );
 	    $color_index = ( @colors - 1 ) * $flog;
 	  } else {
-	    $color_index =
-	      ( @colors - 1 ) *
-		( $value - $plot_min ) /
-		  ( $plot_max - $plot_min );
+	    my $d = $plot_max - $plot_min;
+	    $color_index = $d ? (@colors-1)*($value-$plot_min)/$d : 0;
 	  }
 
 	  my $color = $colors[$color_index];
@@ -4839,33 +4834,48 @@ sub set_display_index {
   return $chrorder_groups;
 }
 
+################################################################
+# Create a new span object from start/end positions. 
+# Positions are expected to be integers. Floats are truncated.
+#
+# If start>end the routine croaks.
+# If start=end or end is not defined, the span is a single value.
+
+sub newspan {
+  my ($start,$end) = @_;
+  if($start == $end || ! defined $end) {
+    return Set::IntSpan->new(sprintf("%.0f",$start));
+  } elsif ($end < $start) {
+    confess "There was a problem initializing a span. Saw start>end. start=$start > end=$end";
+  } else {
+    return Set::IntSpan->new(sprintf("%.0f-%.0f",$start,$end));
+  }
+}
+
 # -------------------------------------------------------------------
 sub recompute_chrorder_groups {
   my $chrorder_groups = shift;
   my %allocated;
-  my $display_idx_set = Set::IntSpan->new( 
-					  sprintf( "%d-%d", 0, @IDEOGRAMS - 1 ) 
-					 );
+  my $display_idx_set = newspan(0,@IDEOGRAMS-1); #Set::IntSpan->new(sprintf( "%d-%d", 0, @IDEOGRAMS - 1 ));
 
   for my $group (@$chrorder_groups) {
     for my $tag_item ( @{ $group->{tags} } ) {
       my ($ideogram) = grep( $_->{tag} eq $tag_item->{tag}, @IDEOGRAMS );
-
       if ($ideogram) {
-	$display_idx_set->remove( $tag_item->{display_idx} )
-	  if defined $tag_item->{display_idx};
+	$display_idx_set->remove( $tag_item->{display_idx} ) if defined $tag_item->{display_idx};
 	$allocated{ $ideogram->{idx} }++;
       }
     }
   }
 
+  #printdumper($chrorder_groups); 
+  printdumper(\@IDEOGRAMS);
   for my $group (@$chrorder_groups) {
     for my $tag_item ( @{ $group->{tags} } ) {
       my ($ideogram) = grep( $_->{tag} eq $tag_item->{tag}, @IDEOGRAMS );
-
-      if ( !$ideogram ) {
-	my ($unallocated) =
-	  grep( !exists $allocated{ $_->{idx} }, @IDEOGRAMS );
+      #for my $ideogram ( grep( $_->{tag} eq $tag_item->{tag}, @IDEOGRAMS ) ) {
+	if ( !$ideogram ) {
+	my ($unallocated) = grep( ! exists $allocated{ $_->{idx} }, @IDEOGRAMS );
 	$tag_item->{tag}          = $unallocated->{tag};
 	$tag_item->{ideogram_idx} = $unallocated->{idx};
 	$allocated{ $unallocated->{idx} }++;
@@ -4873,6 +4883,9 @@ sub recompute_chrorder_groups {
       }
     }
   }
+  
+
+  printdumper($chrorder_groups);
 
   for my $group (@$chrorder_groups) {
     for my $tag_item ( @{ $group->{tags} } ) {
@@ -5641,8 +5654,8 @@ sub read_data_file {
 	       };
 
   my $rx = {
-	    start   => qr/^\d+/,
-	    end     => qr/^\d+/,
+	    start   => qr/^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$/,
+	    end     => qr/^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$/,
 	    value   => qr/^[\d+-.Ee,]+$/,
 	    label   => qr/^.+/,
 	    options => qr/=/
@@ -5668,7 +5681,6 @@ sub read_data_file {
 	$fail = 1;
 	next;
       }
-
       if ( $field eq "options" ) {
 	my @params = split(/,/,$value);
 	my %params;
@@ -5986,7 +5998,8 @@ sub draw_ticks {
 	  $mb_pos_start = nearest( $tickdata->{spacing}, $ideogram->{set}->min );
 	  $mb_pos_end   = nearest( $tickdata->{spacing}, $ideogram->{set}->max );
 	}
-	#printinfo("mbpos","start",$mb_pos_start,"end",$mb_pos_end);
+
+	printinfo("mbpos","start",$mb_pos_start,"end",$mb_pos_end);
 
 	#
 	# compile a list of position for this tick - this is an important step because we will
@@ -7159,24 +7172,21 @@ sub parse_chromosomes {
     }
   }
 
-  for my $chrstring (
-		     split( /[; ]+/, $CONF{chromosomes} ),
-		     split( /[; ]+/, $CONF{chromosomes_breaks} )
-		    ) {
-    my ( $chr, $runlist ) = split( $COLON, $chrstring );
+  for my $chrstring (split( /[; ]+/, $CONF{chromosomes} ),
+		     split( /[; ]+/, $CONF{chromosomes_breaks} ) ) {
+    my ($chr,$runlist) = split($COLON,$chrstring);
     $chr       = $EMPTY_STR if !defined $chr;
     $runlist   = $EMPTY_STR if !defined $runlist;
+    # $accept identifies whether the regions indicate inclusions or exclusions
+    # $accept=1 this region is to be included
+    # $accept=0 this region is to be included (region prefixed by -)
     my $accept = 1;
-
     if ( $chr =~ s/^-// ) {
       $accept = 0;
     }
-
     my $tag;
-
     ( $chr, $tag ) = $chr =~ /([^\[\]]+)\[?([^\]]*)\]?$/;
-
-    if ( !defined $KARYOTYPE->{$chr}{chr} ) {
+    if ( ! defined $KARYOTYPE->{$chr}{chr} ) {
       printwarning(
 		   "skipping entry chromosome entry $chrstring - ",
 		   "the chromosome $chr is not defined in your karyotype"
@@ -7184,25 +7194,21 @@ sub parse_chromosomes {
       next;
     }
 
-    #
     # all numbers in runlist are automatically multiplied by
     # chromosomes_units value - this saves you from having to type
     # a lot of zeroes
-    #
+
     if ( $CONF{chromosomes_units} ) {
       $runlist =~ s/([\.\d]+)/$1*$CONF{chromosomes_units}/eg;
     }
 
     printdebug( "parsed chromosome range", $chr, $runlist || $DASH );
 
-    my $set =
-      $runlist ? Set::IntSpan->new($runlist) : $KARYOTYPE->{$chr}{chr}{set};
+    my $set = $runlist ? Set::IntSpan->new($runlist) : $KARYOTYPE->{$chr}{chr}{set};
 
-    if ($runlist) {
-      $set->remove( $set->max );
-    }
+    $set->remove($set->max) if $runlist;
 
-    if ( !$accept ) {
+    if ( ! $accept ) {
       $set->remove( $set->min ) if $set->min;
       $set->remove( $set->max );
     }
@@ -7219,23 +7225,20 @@ sub parse_chromosomes {
     }
 
     if ($accept) {
-      $KARYOTYPE->{$chr}{chr}{display_region}{accept} ||=
-	Set::IntSpan->new();
-      $KARYOTYPE->{$chr}{chr}{display_region}{accept} =
-	$KARYOTYPE->{$chr}{chr}{display_region}{accept}->union($set);
+      $KARYOTYPE->{$chr}{chr}{display_region}{accept} ||= Set::IntSpan->new();
+      $KARYOTYPE->{$chr}{chr}{display_region}{accept} = $KARYOTYPE->{$chr}{chr}{display_region}{accept}->union($set);
     } else {
-      $KARYOTYPE->{$chr}{chr}{display_region}{reject} ||=
-	Set::IntSpan->new();
-      $KARYOTYPE->{$chr}{chr}{display_region}{reject} =
-	$KARYOTYPE->{$chr}{chr}{display_region}{reject}->union($set);
+      $KARYOTYPE->{$chr}{chr}{display_region}{reject} ||= Set::IntSpan->new();
+      $KARYOTYPE->{$chr}{chr}{display_region}{reject} = $KARYOTYPE->{$chr}{chr}{display_region}{reject}->union($set);
     }
   }
 
-  if ( !grep( $_->{accept}, @chrs ) ) {
+  if ( ! grep( $_->{accept}, @chrs ) ) {
     confess "no chromosomes to draw - either define some in ",
       "'chromosomes' parameter or set chromosomes_display_default to yes";
   }
 
+  printdumper($KARYOTYPE->{hs1}{chr});
   return @chrs;
 }
 
@@ -7413,6 +7416,8 @@ sub allocate_colors {
     next if $color eq "transparent";
     my $colorvalue = $CONF{colors}{$color};
 
+    $colorvalue = $CONF{colors}{$colorvalue} if exists $CONF{colors}{$colorvalue};
+
     if ( $colorvalue !~ /,/ ) {
       next;
     }
@@ -7574,6 +7579,7 @@ sub rgb_color {
   } else {
     # bug fix v0.41 - PNG colors are not allocated if SVG is used;
     # thus look directly in color config file
+    return undef unless $CONF{colors}{$color};
     my @rgb = split( $COMMA, $CONF{colors}{$color} );
     return @rgb;
   }
@@ -7890,7 +7896,7 @@ sub ribbon {
 			      rgb_color( $params{edgecolor} ) );
     }
 
-    if ( $params{fillcolor} ) {
+    if ( $params{fillcolor} && rgb_color($params{fillcolor}) ) {
       $svg_colors .= sprintf( qq{ fill: rgb(%d,%d,%d);},
 			      rgb_color( $params{fillcolor} ) );
       if ( rgb_color_opacity( $params{fillcolor} ) < 1 ) {
@@ -7969,8 +7975,10 @@ sub ribbon {
       $poly->addPt(@$point);
     }
 
-    if ( defined $params{fillcolor} ) {
+    if ( defined $params{fillcolor} && $COLORS->{ $params{fillcolor} } ) {
       $IM->filledPolygon( $poly, aa_color($params{fillcolor},$IM,$COLORS) );
+    } else {
+      # not filling
     }
 
     # stroke the polygon, if required
@@ -8048,8 +8056,14 @@ sub ribbon {
       ( $start_a, $end_a ) = ( $end_a, $start_a );
     }
 
-    $params{start_offset} = 1 if !defined $params{start_offset};
-    $params{end_offset}   = 1 if !defined $params{end_offset};
+    # The offsets are used to accomodate scales for very short ideograms
+    # where individual base positions need to be identified. It allows 
+    # elements with start=end to be drawn without collapsing into a very
+    # thin slice, where start/end angles are the same.
+    my @offsets = $CONF{offsets} ? split(",",$CONF{offsets}) : (1,1);
+    $params{start_offset} = $offsets[0] if !defined $params{start_offset};
+    $params{end_offset}   = $offsets[1] if !defined $params{end_offset};
+
     $start_a -= 360 * $params{start_offset} / $GCIRCUM;
     $end_a += 360 * $params{end_offset} / $GCIRCUM;
 
@@ -8597,34 +8611,70 @@ sub parse_options {
   return $options;
 }
 
-# -------------------------------------------------------------------
+sub is_number {
+  my $text = shift;
+  return $text =~ /^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$/;
+}
+
+sub is_blank {
+  my $string = shift;
+  return $string =~ /^\s*$/;
+}
+
+sub is_comment {
+  my $string = shift;
+  return $string =~ /^\s*\#/;
+}
+
+################################################################
+# Read the karyotype file and parsed chromosome and band locations.
+#
+# Chromosomes have the format
+#
+# chr - hs1 1 0 247249719 green
+# chr - hs2 2 0 242951149 green
+#
+# and bands
+#
+# band hs1 p36.33 p36.33 0 2300000 gneg
+# band hs1 p36.32 p36.32 2300000 5300000 gpos25
+#
+# The fields are
+#
+# field parent name label start end color options
+#
+# Note that name and label can be different. The label (e.g. 1) is what appears
+# on the image, but the name (e.g. hs1) is what is used in the input data file.
+#
+# v0.52 - additional error checks and tidying
+#
 sub read_karyotype {
-  #
-  # the karyotype file describes the chromosomes, their sizes
-  # and any corresponding cytogenetic bands
-  #
   validate( @_, { file => 1 } );
   my %params = @_;
   $params{file} = locate_file( file => $params{file} );
   my $karyotype;
-  my $chr_index = 0;
+  my $chr_index = 0; # keep track of the number of chromosome records in the file
   open( F, $params{file} ) or confess "Cannot open $params{file}\n";
   while (<F>) {
-    next if /^\s*\#/;
-    next if /^\s*$/;
     chomp;
+    next if is_blank($_);
+    next if is_comment($_);
     my ( $field, $parent, $name, $label, $start, $end, $color, $options ) =
       $CONF{file_delim} ? split($CONF{file_delim}) : split;
-    if ( $start =~ /\D/ || $end =~ /\D/ ) {
-      confess "fatal error - start/end coordinates in karyotype ",
-	"are not digits ($start,$end)";
+
+    if ( ! is_number($start) || ! is_number($end) ) {
+      confess "fatal error - start/end coordinates in karyotype are not digits ($start,$end)";
     }
     if ( $end <= $start ) {
-      confess "fatal error - end coordinate in karyotype is ",
-	"same or lower than start ($start,$end)"
-      }
+      confess "fatal error - end coordinate in karyotype is same or lower than start ($start,$end)";
+    }
 
-    my $set  = Set::IntSpan->new("$start-$end");
+    my $set  = newspan($start,$end); #Set::IntSpan->new("$start-$end");
+
+    # karyotype data structure is a hash with each chromosome being a value
+    # keyed by chromosome name. Bands form a list within the chromosome
+    # data structure, keyed by 'band'.
+
     my $data = {
 		start   => $start,
 		end     => $end,
@@ -8636,39 +8686,52 @@ sub read_karyotype {
 		color   => lc $color,
 		options => parse_options( string => $options )
 	       };
+
     if ( $field =~ /chr/ ) {
+      # chromosome entries have a few additional fields
+      # chr, scale, display_order
       $data->{chr}           = $name;
       $data->{scale}         = 1;
       $data->{display_order} = $chr_index++;
-
-      if ( $karyotype->{ $data->{chr} }{chr} ) {
-	confess "fatal error - you have defined chromosome ",
-	  "$data->{chr} twice in the karyotype file";
+      if ( $karyotype->{$data->{chr}}{chr} ) {
+	confess "fatal error - you have defined chromosome $data->{chr} twice in the karyotype file";
       }
-
-      $karyotype->{ $data->{chr} }{chr} = $data;
+      # chromosome is keyed by its name
+      $karyotype->{ $name }{chr} = $data;
     } elsif ( $field =~ /band/ ) {
+      # band entries have the 'chr' key point to the name of parent chromosome
       $data->{chr} = $parent;
-      push @{ $karyotype->{ $data->{chr} }{band} }, $data;
+      if ( ! $karyotype->{$parent}{chr} ) {
+	# Used to quit here, but now this function is in validate_karyotype. The result is that 
+	# you can define a band for a chromosome before the chromosome itself.
+	#confess "fatal error - you've defined bands for chromosome $parent but this chromosome itself has not been first defined.";
+      }
+      push @{ $karyotype->{ $parent }{band} }, $data;
     } else {
-      push @{ $karyotype->{$parent}{$field} }, $data;
+      # for now, die hard here. There are no other line types supported.
+      confess "fatal error - you have a field line named $field in the karyotype file. Currently only 'chr' or 'band' are supported.";
+      #push @{ $karyotype->{$parent}{$field} }, $data;
     }
   }
-
   return $karyotype;
 }
 
-# -------------------------------------------------------------------
-sub validate_karyotype {
-  #
-  # make sure that the karyotype structure is up to snuff
-  #
-  # - any bands have corresponding chromosomes
-  # - bands have coordinates within the chromosome
-  # - bands completely cover the chromosome (suggested)
-  # - bands do not overlap (suggested)
-  # - chromosomes have no parent fields (suggested)
+################################################################
+#
+# Verify the contents of the karyotype data structure. Basic
+# error checking also happens in read_karyotype (above). Here,
+# we perform more detailed diagnostics.
+#
+# The following are checked
+# 
+# error  condition
+# FATAL  a band has no associated chromosome
+# FATAL  band coordinates extend outside chromosome
+# FATAL  two bands overlap by more than max_band_overlap
+# WARN   a chromosome has a parent field definition
+# WARN   bands do not completely cover the chromosome
 
+sub validate_karyotype {
   validate( @_, { karyotype => 1 } );
   my %params    = @_;
   my $karyotype = $params{karyotype};
@@ -8676,10 +8739,9 @@ sub validate_karyotype {
     if ( !$karyotype->{$chr}{chr} ) {
       confess "error - you've defined structures on chromsome ",
 	"$chr but have no definition for the chromosome itself ",
-	  "(is there a `chr` line for this chromosome in the ",
+	  "(is there a 'chr' line for this chromosome in the ",
             "karyotype file?";
     }
-
     if ( $karyotype->{$chr}{chr}{parent} ne $DASH ) {
       printwarning( 
 		   "chromosome $chr has a parent field - ",
@@ -8689,35 +8751,23 @@ sub validate_karyotype {
 
     my $chrset           = $karyotype->{$chr}{chr}{set};
     my $bandcoverage     = Set::IntSpan->new();
+    # Bands can overlap by at most this many bases.
     my $max_band_overlap = 1;
 
     for my $band ( make_list( $karyotype->{$chr}{band} ) ) {
       if ( $band->{set}->diff($chrset)->cardinality ) {
 	confess "band $band->{name} on chromosome $chr has ",
 	  "coordinates that extend outside chromosome";
-      } elsif ( 
-	       $band->{set}->intersect($bandcoverage)->cardinality >
-	       $max_band_overlap 
-	      ) {
-	printwarning(
-		     "band $band->{name} overlaps with another band by ",
-		     "more than $max_band_overlap base on chromosome $chr"
-		    );
+      } elsif ( $band->{set}->intersect($bandcoverage)->cardinality > $max_band_overlap ) {
+	confess "band $band->{name} overlaps with another band by ",
+	  "more than $max_band_overlap base on chromosome $chr";
       }
-
       $bandcoverage = $bandcoverage->union( $band->{set} );
     }
-
-    if (   $bandcoverage->cardinality
-	   && $bandcoverage->cardinality < $chrset->cardinality 
-       ) {
-      printwarning(
-		   "bands for chromosome $chr do not cover entire chromosome"
-		  );
+    if ($bandcoverage->cardinality && $bandcoverage->cardinality < $chrset->cardinality ) {
+      printwarning("bands for chromosome $chr do not cover entire chromosome");
     }
   }
-
-  $CONF{svg_font_scale} ||= 1;
 }
 
 # -------------------------------------------------------------------
@@ -8831,6 +8881,7 @@ sub validateconfiguration {
   }
 
   $CONF{chromosomes_units} ||= 1;
+  $CONF{svg_font_scale} ||= 1;
 
   if ( !$CONF{configfile} ) {
     confess "Error: no configuration file specified. Please use -conf FILE";
