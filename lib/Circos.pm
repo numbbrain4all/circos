@@ -1,6 +1,6 @@
 package Circos;
 
-our $VERSION = '0.51';
+our $VERSION = '0.52';
 
 =pod
 
@@ -40,7 +40,7 @@ another image, call run again with different options.
 
 =head1 VERSION
 
-Version 0.51.
+Version 0.52.
 
 =head1 FUNCTIONS/METHODS
 
@@ -83,6 +83,7 @@ Readonly my $COLON      => q{:};
 Readonly my $COMMA      => q{,};
 Readonly my $DASH       => q{-};
 Readonly my $DEG2RAD    => 0.0174532925;
+Readonly my $DOLLAR     => q{$};
 Readonly my $EMPTY_STR  => q{};
 Readonly my $EQUAL_SIGN => q{=};
 Readonly my $PI         => 3.141592654;
@@ -193,6 +194,8 @@ or a hashref of the configuration options.
   validate_karyotype( karyotype => $KARYOTYPE );
   printdebug("got cytogenetic information for",int( keys %$KARYOTYPE ),"chromosomes");
 
+  #printdumper($KARYOTYPE);exit;
+
   ################################################################
   # determine the chromosomes to be shown and their regions;
   # if a chromosome region has not been defined (e.g. 15 vs 15:x-y)
@@ -213,15 +216,15 @@ or a hashref of the configuration options.
 
   my @chrs = parse_chromosomes();
 
-  # make sure that the accept/reject regions are within the chromosome (do an intersection)
-  # and give priority to reject regions (remove them from accept regions)
+  # refine accept/reject regions by
+  # - removing reject regions (defined by breaks) from accept regions
+  # - make sure that the accept/reject regions are within the chromosome (perform intersection)
 
   refine_display_regions();
 
   # create a list of structures to draw in the image
 
-  @IDEOGRAMS =
-    grep( $_->{set}->cardinality > 1, create_ideogram_set(@chrs) );
+  @IDEOGRAMS = grep( $_->{set}->cardinality > 1, create_ideogram_set(@chrs) );
 
   ################################################################
   # process chr scaling factor; you can scale chromosomes
@@ -253,7 +256,12 @@ or a hashref of the configuration options.
   #
   # the process of deteriming the final order is convoluted
 
+  #printdumper(@IDEOGRAMS);
+  #printdumper($KARYOTYPE->{hs1}{chr});
+  #exit;
+
   my @chrorder = read_chromosomes_order();
+  #printdumper(@chrorder);exit;
 
   # construct ideogram groups based on the content of chromosomes_order, with
   # each group corresponding to a list of tags between breaks "|" in the
@@ -261,17 +269,16 @@ or a hashref of the configuration options.
 
   my $chrorder_groups = [ { idx => 0, cumulidx => 0 } ];
   $chrorder_groups = make_chrorder_groups($chrorder_groups, \@chrorder);
-
-  #print Dumper($chrorder_groups);
-  #exit;
+  
+  #printdumper(@IDEOGRAMS);exit;
+  #printdumper($chrorder_groups);exit;
 
   ################################################################
   #
-  # now comes the convoluted business, where I set the display_idx
+  # Now comes the convoluted business. Here is where I set the display_idx
+  # which is the order in which the ideograms are displayed.
   #
-  # which is the order in which the ideograms are displayed
-  #
-  # iterate through each group, handling the those with start/end
+  # Iterate through each group, handling the those with start/end
   # anchors first, and assign the display_idx to each tag as follows
   #
   # - start at 0 if this is a group with start anchor
@@ -280,10 +287,9 @@ or a hashref of the configuration options.
   #     (this anchors the position to be the same as the first placeable ideogram)
   #
   ################################################################
-  #print Dumper($chrorder_groups);
   set_display_index($chrorder_groups);
 
-  #print Dumper($chrorder_groups);
+  #printdumper($chrorder_groups);exit;
 
   ################################################################
   #
@@ -295,14 +301,11 @@ or a hashref of the configuration options.
 
   reform_chrorder_groups($chrorder_groups);
 
-  #print Dumper($chrorder_groups);
   #print Dumper(@IDEOGRAMS);
   #printdumper($chrorder_groups);
   #exit;
   recompute_chrorder_groups($chrorder_groups);
-  exit;
-
-  #print Dumper($chrorder_groups);
+  #printdumper($chrorder_groups);
   #exit;
 
   @IDEOGRAMS = sort { $a->{display_idx} <=> $b->{display_idx} } @IDEOGRAMS;
@@ -713,8 +716,7 @@ or a hashref of the configuration options.
 	$CONF{fonts}{ $CONF{ideogram}{label_font} || 'default' };
       $fontfile = locate_file( file => $fontfile );
       my $label = $KARYOTYPE->{$chr}{chr}{label};
-      $label .= $ideogram->{tag}
-	if $ideogram->{tag} ne $chr && $CONF{ideogram}{label_with_tag};
+      $label .= $ideogram->{tag} if $ideogram->{tag} ne $chr && $ideogram->{tag} !~ /__/ && $CONF{ideogram}{label_with_tag};
       my @label_bounds = GD::Image->stringFT(
 					     $COLORS->{
 						       seek_parameter( 'label_color', $CONF{ideogram} ) || 'black'
@@ -724,8 +726,7 @@ or a hashref of the configuration options.
 					     0, 0, 0, $label
 					    );
       my ( $label_width, $label_height ) = text_label_size(@label_bounds);
-      my $textangle =
-	getanglepos( get_set_middle( $ideogram->{set} ), $chr );
+      my $textangle = getanglepos( get_set_middle( $ideogram->{set} ), $chr );
       if ( seek_parameter( 'label_center', $CONF{ideogram} ) ) {
 	$DIMS->{ideogram}{ $ideogram->{tag} }{label}{radius} -=
 	  $label_width / 2;
@@ -733,18 +734,18 @@ or a hashref of the configuration options.
       my ( $offset_angle, $offset_radius ) =
 	textoffset( $textangle,
 		    $DIMS->{ideogram}{ $ideogram->{tag} }{label}{radius},
-		    $label_width, $label_height );
+		    $label_width, $label_height,
+		    0,
+		    $CONF{ideogram}{label_parallel});
       my $pos = get_set_middle( $ideogram->{set} );
       draw_text(
                 image => $IM,
                 font  => $fontfile,
-                color => seek_parameter( 'label_color', $CONF{ideogram} )
-		|| 'black',
+                color => seek_parameter( 'label_color', $CONF{ideogram} ) || 'black',
                 size   => unit_strip( $CONF{ideogram}{label_size}, 'p' ),
-                radius => $offset_radius +
-		$DIMS->{ideogram}{ $ideogram->{tag} }{label}{radius},
+                radius => $offset_radius + $DIMS->{ideogram}{ $ideogram->{tag} }{label}{radius},
                 pangle => getanglepos( $pos, $chr ),
-                angle => $DEG2RAD * ( $offset_angle + textangle($textangle) ),
+                angle => $DEG2RAD * ( $offset_angle + textangle($textangle,$CONF{ideogram}{label_parallel}) ),
                 xy => [
 		       getxypos(
 				getanglepos( $pos, $chr ),
@@ -756,10 +757,10 @@ or a hashref of the configuration options.
 			  getxypos(
 				   getanglepos( $pos, $chr ) +
 				   $offset_angle / $CONF{svg_font_scale},
-				   $DIMS->{ideogram}{ $ideogram->{tag} }{label}{radius}
+				   $CONF{ideogram}{label_parallel}*$offset_radius + $DIMS->{ideogram}{ $ideogram->{tag} }{label}{radius}
 				  )
 			 ],
-                svgangle   => textanglesvg($textangle),
+                svgangle   => textanglesvg($textangle,$CONF{ideogram}{label_parallel}),
                 text       => $label,
                 chr        => $chr,
                 start      => $pos,
@@ -828,10 +829,15 @@ or a hashref of the configuration options.
   }
 
   for my $ideogram (@IDEOGRAMS) {
-    if (   $ideogram->{chr} eq $ideogram->{next}{chr}
-	   || $ideogram->{break}{start}
-	   || $ideogram->{break}{end} ) {
-      draw_axis_break($ideogram);
+    if ( $ideogram->{chr} eq $ideogram->{next}{chr}
+	 || $ideogram->{break}{start}
+	 || $ideogram->{break}{end} ) {
+      # v0.52 fixes problem with axis break display when a single
+      # ideogram with a break was shown. The problem is due to the
+      # circular nature of the next/prev list.
+      if($ideogram->{display_idx} < $ideogram->{next}{display_idx}) {
+	draw_axis_break($ideogram);
+      }
     }
   }
 
@@ -2990,12 +2996,9 @@ or a hashref of the configuration options.
 					 );
 
 	  my $text_angle =
-	    defined seek_parameter( "label_rotate", $datum,
-				    @param_path )
+	    defined seek_parameter( "label_rotate", $datum, @param_path )
 	      && !seek_parameter( "label_rotate", $datum, @param_path )
-		? 0
-		  : $DEG2RAD * textangle( $data_point->{angle_new} );
-
+		? 0 : $DEG2RAD * textangle( $data_point->{angle_new} );
 	  0&&printinfo( "drawing label",
 		     $data_point->{label},
 		     $datum->{data}[0]{param}{label_size} );
@@ -4681,58 +4684,56 @@ sub format_url {
   return $url;
 }
 
-# -------------------------------------------------------------------
+################################################################
+# First pass at creating a data structure of ideogram order
+# groups. Each group is composed of the ideograms that it contains,
+# their index within the group, and a few other helper structures
+#
+# n : number of ideograms in the group
+# cumulidx : number of ideograms in all preceeding groups
+# idx : group index
+# tags : list of ideogram data
+#        ideogram_idx - ideogram idx relative to default order
+#        tag - tag of the ideogram (ID or user tag)
 sub make_chrorder_groups {
-  # First pass at creating a data structure of ideogram order
-  # groups. Each group is comprised of the ideograms that it contains,
-  # their index within the group, and a few other helper structures
-  #
-  # n : number of ideograms in the group
-  # cumulidx : number of ideograms in all preceeding groups
-  # idx : group index
-  # tags : list of ideogram data
-  #        ideogram_idx - ideogram idx relative to default order
-  #        tag - tag of the ideogram (ID or user tag)
 
   my $chrorder_groups = shift;
   my $chrorder        = shift;
 
   for my $tag (@$chrorder) {
     if ( $tag eq $CARAT ) {
-
       # this list has a start anchor
-      confess "only one order group can have a start '^' anchor"
-	if grep( $_->{start}, @$chrorder_groups );
+      confess "only one order group can have a start '^' anchor" if grep( $_->{start}, @$chrorder_groups );
       $chrorder_groups->[-1]{start} = 1;
     } elsif ( $tag eq q{$} ) {
-
       # this list has an end anchor
-      confess "only one order group can have an end '$' anchor"
-	if grep( $_->{end}, @$chrorder_groups );
+      confess "only one order group can have an end '$' anchor" if grep( $_->{end}, @$chrorder_groups );
       $chrorder_groups->[-1]{end} = 1;
     } elsif ( $tag eq $PIPE ) {
-
       # saw a break - create a new group
       push @{$chrorder_groups},
 	{
 	 idx      => scalar( @{$chrorder_groups} ),
-	 cumulidx => $chrorder_groups->[-1]{n} +
-	 $chrorder_groups->[-1]{cumulidx}
+	 cumulidx => $chrorder_groups->[-1]{n} + $chrorder_groups->[-1]{cumulidx}
 	};
+    } elsif ( $tag eq $DASH ) {
+	push @{ $chrorder_groups->[-1]{tags} }, { tag => $tag };
+	$chrorder_groups->[-1]{n} = int( @{ $chrorder_groups->[-1]{tags} } );
+	$chrorder_groups->[-1]{tags}[-1]{group_idx} = $chrorder_groups->[-1]{n} - 1;
     } else {
-
-      # add this tag to the most recent group
-      push @{ $chrorder_groups->[-1]{tags} }, { tag => $tag };
-      $chrorder_groups->[-1]{n} =
-	int( @{ $chrorder_groups->[-1]{tags} } );
-      $chrorder_groups->[-1]{tags}[-1]{group_idx} =
-	$chrorder_groups->[-1]{n} - 1;
+      # add this tag and all ideograms that match it (v0.52) to the most recent group 
+      my @tagged_ideograms = grep( ($_->{tag} !~ /__/ && $_->{tag} eq $tag) || ($_->{tag} =~ /__/ && $_->{chr} eq $tag) , @IDEOGRAMS );
+      for my $tagged_ideogram (@tagged_ideograms) {
+	push @{ $chrorder_groups->[-1]{tags} }, { tag => $tag, ideogram_idx => $tagged_ideogram->{idx} };
+	$chrorder_groups->[-1]{n} = int( @{ $chrorder_groups->[-1]{tags} } );
+	$chrorder_groups->[-1]{tags}[-1]{group_idx} = $chrorder_groups->[-1]{n} - 1;
+      }
     }
   }
-
   #
   # to each tag with corresponding ideogram, add the ideogram_idx
-  # also do some group sanity checks
+  #
+  # check that a group does not have the start and end anchor
   #
   for my $group (@$chrorder_groups) {
     if ( $group->{start} && $group->{end} ) {
@@ -4743,13 +4744,12 @@ sub make_chrorder_groups {
             "ideograms are drawn, use '-' in front of tags in the ",
 	      "chromosomes field";
     }
-
-    for my $tag_item ( @{ $group->{tags} } ) {
-      my ($ideogram) = grep( $_->{tag} eq $tag_item->{tag}, @IDEOGRAMS );
-      $tag_item->{ideogram_idx} = $ideogram->{idx} if $ideogram;
-    }
+    # This is now being done above (v0.52).
+    #for my $tag_item ( @{ $group->{tags} } ) {
+    #  my @tagged_ideograms = grep( ($_->{tag} !~ /__/ && $_->{tag} eq $tag_item->{tag}) || ($_->{tag} =~ /__/ && $_->{chr} eq $tag_item->{tag}) , @IDEOGRAMS );
+    #  $tag_item->{ideogram_idx} = [ map {$_->{idx}} @tagged_ideograms ] if @tagged_ideograms;
+    #}
   }
-
   return $chrorder_groups;
 }
 
@@ -4762,23 +4762,19 @@ sub filter_data {
   return $int;
 }
 
-# -------------------------------------------------------------------
+################################################################
+#
+# Given the initial chromosome order groups (see make_chrorder_groups),
+# set the display index of each ideogram.
+#
 sub set_display_index {
-  #
-  # Given the initial chromosome order groups (see make_chrorder_groups),
-  # set the display index of each ideogram.
-  #
   my $chrorder_groups  = shift;
   my $seen_display_idx = Set::IntSpan->new();
-
   #
   # keep track of which display_idx values have been used
   # process groups that have start or end flags first
   #
-  for my $group (
-		 sort { ( $b->{start} || $b->{end} ) <=> ( $a->{start} || $a->{end} ) }
-		 @$chrorder_groups 
-		) {
+  for my $group (sort { ( $b->{start} || $b->{end} ) <=> ( $a->{start} || $a->{end} ) } @$chrorder_groups ) {
     if ( $group->{start} ) {
       my $display_idx = 0;
       for my $tag_item ( @{ $group->{tags} } ) {
@@ -4830,7 +4826,6 @@ sub set_display_index {
       }
     }
   }
-
   return $chrorder_groups;
 }
 
@@ -4860,21 +4855,19 @@ sub recompute_chrorder_groups {
 
   for my $group (@$chrorder_groups) {
     for my $tag_item ( @{ $group->{tags} } ) {
-      my ($ideogram) = grep( $_->{tag} eq $tag_item->{tag}, @IDEOGRAMS );
+      my ($ideogram) = grep( ($_->{tag} !~ /__/ && $_->{tag} eq $tag_item->{tag}) || ($_->{tag} =~ /__/ && $_->{chr} eq $tag_item->{tag}), @IDEOGRAMS );
       if ($ideogram) {
 	$display_idx_set->remove( $tag_item->{display_idx} ) if defined $tag_item->{display_idx};
 	$allocated{ $ideogram->{idx} }++;
       }
     }
   }
-
-  #printdumper($chrorder_groups); 
-  printdumper(\@IDEOGRAMS);
+  
   for my $group (@$chrorder_groups) {
     for my $tag_item ( @{ $group->{tags} } ) {
-      my ($ideogram) = grep( $_->{tag} eq $tag_item->{tag}, @IDEOGRAMS );
+      my ($ideogram) = grep( ($_->{tag} !~ /__/ && $_->{tag} eq $tag_item->{tag}) || ($_->{tag} =~ /__/ && $_->{chr} eq $tag_item->{tag}), @IDEOGRAMS );
       #for my $ideogram ( grep( $_->{tag} eq $tag_item->{tag}, @IDEOGRAMS ) ) {
-	if ( !$ideogram ) {
+      if ( !$ideogram ) {
 	my ($unallocated) = grep( ! exists $allocated{ $_->{idx} }, @IDEOGRAMS );
 	$tag_item->{tag}          = $unallocated->{tag};
 	$tag_item->{ideogram_idx} = $unallocated->{idx};
@@ -4883,9 +4876,6 @@ sub recompute_chrorder_groups {
       }
     }
   }
-  
-
-  printdumper($chrorder_groups);
 
   for my $group (@$chrorder_groups) {
     for my $tag_item ( @{ $group->{tags} } ) {
@@ -6761,15 +6751,18 @@ sub ideogram_spacing {
   return $spacing;
 }
 
-# -------------------------------------------------------------------
+################################################################
+# parse ideogram order from parameter or file
 sub read_chromosomes_order {
-  # parse ideogram order from parameter or file
   my @chrorder;
+  # construct a list of ordered chromosomes, from one of
+  # - 'chromosomes_order' parameter
+  # - 'chromosomes_order_file' input file
+  # - native order from karyotype
   if ( $CONF{chromosomes_order} ) {
-    @chrorder = split( /\s*,\s*/, $CONF{chromosomes_order} );
+    @chrorder = split( /\s*[;,]\s*/, $CONF{chromosomes_order} );
   } elsif ( $CONF{chromosomes_order_file} ) {
-    $CONF{chromosomes_order_file} =
-      locate_file( $CONF{chromosomes_order_file} );
+    $CONF{chromosomes_order_file} = locate_file( $CONF{chromosomes_order_file} );
     open CHRORDER, $CONF{chromosomes_order_file} 
       or confess "Cannot open $CONF{chromosomes_order_file}: $!\n";
     while (<CHRORDER>) {
@@ -6779,74 +6772,61 @@ sub read_chromosomes_order {
     }
     close(CHRORDER);
   } else {
-    @chrorder = (
-		 $CARAT,
-		 sort {
-		   $KARYOTYPE->{$a}{chr}{display_order} <=> $KARYOTYPE->{$b}{chr}{display_order}
-		   } keys %$KARYOTYPE
+    @chrorder = ($CARAT, 
+		 sort { $KARYOTYPE->{$a}{chr}{display_order} <=> $KARYOTYPE->{$b}{chr}{display_order} } keys %$KARYOTYPE
 		);
   }
-  my %seen_tag;
-  my @tags = map { $_->{tag} } @IDEOGRAMS;
 
-  #printinfo(@tags);
+  my %seen_tag;
+  my @tags = map { $_->{tag} =~ /__/ ? $_->{chr} : $_->{tag} } @IDEOGRAMS;
   my $n;
   for my $tag (@chrorder) {
     my $tag_found = grep( $_ eq $tag, @tags );
     if ($tag_found) {
       if ( $seen_tag{$tag}++ ) {
-	confess "incorrectly formatted chromosomes_order field - ",
-	  "tag $tag appears multiple times";
+	confess "fatal error - incorrectly formatted chromosomes_order field (or content of chromosomes_order_file) - tag $tag appears multiple times.";
       }
+    } elsif ( $tag ne $PIPE && $tag ne $DOLLAR && $tag ne $CARAT && $tag ne $DASH
+	       && ! grep($_->{tag} eq $tag, @IDEOGRAMS)
+	      && ! grep($_ eq $tag, keys %$KARYOTYPE) ) {
+      confess "fatal error - incorrectly formatted chromosomes_order field (or content of chromosomes_order_file) - tag $tag appears in the chromosome order, but it is not associated with any chromosome.";
     }
-
     $n++ if $tag_found || $tag eq $DASH;
   }
-
   if ( $n > @IDEOGRAMS ) {
     printwarning(
-		 "you have more tags (",
-		 $n,
-		 ") in the chromosomes_order field than ideograms (",
+		 "you have more tags ($n) in the chromosomes_order field than ideograms (",
 		 int(@IDEOGRAMS),
 		 ") - circos may not be able to correctly order the display"
 		);
   }
-
   return @chrorder;
 }
 
-# -------------------------------------------------------------------
+################################################################
+# chromosomes and regions can have a scale multiplier to adjust
+# the size of the ideogram in the image
+#
+# scale is keyed by the chromosome/region tag and applied
+# in the order of appearance in the scale string
+#
 sub register_chromosomes_scale {
-  #
-  # chromosomes and regions can have a scale multiplier to adjust
-  # the size of the ideogram in the image
-  #
-  # scale is keyed by the chromosome/region tag and applied
-  # in the order of appearance in the scale string
-  #
-
   my @chrs = split( /[;,]/, $CONF{chromosomes_scale} );
-
   for my $pair (@chrs) {
     my ( $tag, $scale ) = split( /:/, $pair );
-
     for my $ideogram (@IDEOGRAMS) {
       $ideogram->{scale} = $scale if $ideogram->{tag} eq $tag;
     }
   }
 }
 
-# -------------------------------------------------------------------
+################################################################
+# chromosomes and regions may be reversed
+#
 sub register_chromosomes_direction {
-  #
-  # chromosomes and regions may be reversed
-  #
   my @chrs = split( /[;,]/, $CONF{chromosomes_reverse} );
-
   for my $pair (@chrs) {
     my ( $tag, $scale ) = split( /:/, $pair );
-
     for my $ideogram (@IDEOGRAMS) {
       $ideogram->{reverse} = 1 if $ideogram->{tag} eq $tag;
     }
@@ -6952,88 +6932,115 @@ sub get_ideogram_radius {
   }
 }
 
-# -------------------------------------------------------------------
+################################################################
+#
 sub create_ideogram_set {
   my @chrs = @_;
+  my $tag_count;
   for my $chr (@chrs) {
-    if ( $chr->{accept} ) {
-      my $region_candidate =
-	$chr->{set}->intersect(
-			       $KARYOTYPE->{ $chr->{chr} }{chr}{display_region}{accept} );
-      next unless $region_candidate->cardinality;
-      $KARYOTYPE->{ $chr->{chr} }{chr}{ideogram} = 1;
-      for my $set ( $region_candidate->sets ) {
-	if ( $chr->{tag} eq "default" ) {
-	  croak "error - you have an ideogram with the tag",
-	    "[default] which is not allowed as this is a ",
-	      "reserved keyword";
-	}
+    next unless $chr->{accept};
+    my $chrname = $chr->{chr};
+    my $region_candidate =  $chr->{set}->intersect($KARYOTYPE->{$chrname}{chr}{display_region}{accept} );
+    next unless $region_candidate->cardinality;
+    $KARYOTYPE->{ $chrname }{chr}{ideogram} = 1;
+    for my $set ( $region_candidate->sets ) {
+      if ( $chr->{tag} eq "default" ) {
+	confess "fatal error - you have an ideogram with the tag",
+	  "[default] which is not allowed as this is a ",
+	    "reserved keyword";
+      }
+      ################################################################
+      # v0.52
+      # chromosomes that don't have an explicit tag, receive an automatically
+      # generated tag if autotag=yes. 
+      my $autotag = sprintf("%s__%d",$chr->{chr},$tag_count->{ $chr->{chr} }++);
+      my $idtag;
+      if($chr->{tag} eq $chr->{chr} && $CONF{autotag}) {
+	$idtag = $autotag;
+      } else {
+	$idtag = $chr->{tag};
+      }
+      my $ideogram = {
+		      chr       => $chr->{chr},
+		      chrlength => $KARYOTYPE->{ $chrname }{chr}{size},
+		      label     => $KARYOTYPE->{ $chrname }{chr}{label},
+		      param     => $KARYOTYPE->{ $chrname }{chr}{options},
+		      scale     => 1,
+		      reverse   => 0,
+		      tag       => $idtag,
+		      idx       => int(@IDEOGRAMS),
+		      set       => $set,
+		     };
+      push @IDEOGRAMS, $ideogram;
+    }
+  }
 
-	my $ideogram = {
-			chr       => $chr->{chr},
-			chrlength => $KARYOTYPE->{ $chr->{chr} }{chr}{size},
-			label     => $KARYOTYPE->{ $chr->{chr} }{chr}{label},
-			param     => $KARYOTYPE->{ $chr->{chr} }{chr}{options},
+  ################################################################
+  # v0.52 This section is deprecated (I think). 
+  # RUN TESTS TO ENSURE THAT THIS LOOP IS NOT REQUIRED.
+  #
+  # Scan for chromosome entries that have accept regions but have not been
+  # added to @IDEOGRAMS. 
+  for my $chrname ( sort keys %$KARYOTYPE ) {
+    my $chr = $KARYOTYPE->{$chrname}{chr};
+    next if defined $chr->{ideogram};
+    next unless $chr->{display_region}{accept}->cardinality;
+    $chr->{ideogram} = 1;
+    my $autotag = sprintf("%s__%d",$chr->{chr},$tag_count->{ $chrname }++);
+    my $idtag;
+    if($chr->{tag} eq $chr->{chr} && $CONF{autotag}) {
+      $idtag = $autotag;
+    } else {
+      $idtag = $chr->{tag};
+    }
+    for my $set ($chr->{display_region}{accept}->sets) {
+      if ( $chr eq "default" ) {
+	confess "fatal error - you have an ideogram with the name ",
+	  "[default] which is not allowed as this is a ",
+	    "reserved keyword";
+      }
+      push @IDEOGRAMS, {
+			chr       => $chrname,
+			label     => $chr->{label},
+			chrlength => $chr->{size},
+			label     => $chr->{label},
+			param     => $chr->{options},
 			scale     => 1,
-			tag       => $chr->{tag},
-			idx       => int(@IDEOGRAMS),
-			set       => $set
+			reverse   => 0,
+			tag   => $idtag,
+			idx   => int(@IDEOGRAMS),
+			set   => $set,
 		       };
-	push @IDEOGRAMS, $ideogram;
-      }
     }
   }
-
-  for my $chr ( sort keys %$KARYOTYPE ) {
-    if ( !defined $KARYOTYPE->{$chr}{chr}{ideogram} ) {
-      if ( $KARYOTYPE->{$chr}{chr}{display_region}{accept}->cardinality ) {
-	$KARYOTYPE->{$chr}{chr}{ideogram} = 1;
-
-	for my $set (
-		     $KARYOTYPE->{$chr}{chr}{display_region}{accept}->sets 
-		    ) {
-	  if ( $chr eq "default" ) {
-	    croak "error - you have an ideogram with the name ",
-	      "[default] which is not allowed as this is a ",
-		"reserved keyword";
-	  }
-
-	  push @IDEOGRAMS, {
-			    chr   => $chr,
-			    label => $KARYOTYPE->{$chr}{chr}{label},
-			    scale => 1,
-			    tag   => $chr,
-			    idx   => int(@IDEOGRAMS),
-			    set   => $set
-			   };
-	}
-      }
-    }
-  }
-
   return sort { $a->{idx} <=> $b->{idx} } @IDEOGRAMS;
 }
 
-# -------------------------------------------------------------------
+################################################################
+# Ensure that each chromosome in the karyotype has a display_region
+# field.
+#
+# Any reject/accept regions defined in parse_chromosomes() are checked
+# against the size of the chromosome and intersected with the extent
+# of the chromosome.
+#
+# This function modifies the {CHR}{chr}{display_region} hash by 
+# adjusting 'accept' and 'reject' keys.
+#
 sub refine_display_regions {
-  for my $chr ( sort keys %$KARYOTYPE ) {
+  for my $chr ( sort {$KARYOTYPE->{$a}{chr}{display_order} <=> $KARYOTYPE->{$b}{chr}{display_order}} keys %$KARYOTYPE ) {
     $KARYOTYPE->{$chr}{chr}{display_region} ||= {};
+
     my $region = $KARYOTYPE->{$chr}{chr}{display_region};
 
     if ( $region->{reject} && $region->{accept} ) {
-      $region->{reject} =
-	$region->{reject}->intersect( $KARYOTYPE->{$chr}{chr}{set} );
-      $region->{accept} =
-	$region->{accept}->intersect( $KARYOTYPE->{$chr}{chr}{set} )
-	  ->diff( $region->{reject} );
+      $region->{reject} = $region->{reject}->intersect( $KARYOTYPE->{$chr}{chr}{set} );
+      $region->{accept} = $region->{accept}->intersect( $KARYOTYPE->{$chr}{chr}{set} )->diff( $region->{reject} );
     } elsif ( $region->{reject} ) {
-      $region->{reject} =
-	$region->{reject}->intersect( $KARYOTYPE->{$chr}{chr}{set} );
-      $region->{accept} =
-	$KARYOTYPE->{$chr}{chr}{set}->diff( $region->{reject} );
+      $region->{reject} = $region->{reject}->intersect( $KARYOTYPE->{$chr}{chr}{set} );
+      $region->{accept} = $KARYOTYPE->{$chr}{chr}{set}->diff( $region->{reject} );
     } elsif ( $region->{accept} ) {
-      $region->{accept} =
-	$region->{accept}->intersect( $KARYOTYPE->{$chr}{chr}{set} );
+      $region->{accept} = $region->{accept}->intersect( $KARYOTYPE->{$chr}{chr}{set} );
       $region->{reject} = Set::IntSpan->new();
     } else {
       if ( $CONF{chromosomes_display_default} ) {
@@ -7045,11 +7052,11 @@ sub refine_display_regions {
       }
     }
 
-    $KARYOTYPE->{$chr}{chr}{display} = 1 if $region->{accept}->cardinality;
+    $KARYOTYPE->{$chr}{chr}{display} = $region->{accept}->cardinality ? 1 : 0;
 
     printdebug(
 	       "chromosome ranges",      $chr,
-	       "display",                $KARYOTYPE->{$chr}{chr}{display} || 0,
+	       "display",                $KARYOTYPE->{$chr}{chr}{display},
 	       "region_display",         $region->{accept}->run_list,
 	       "region_explicit_reject", $region->{reject}->run_list
 	      );
@@ -7124,28 +7131,48 @@ sub parse_ideogram_filter {
   return $filter;
 }
 
-# -------------------------------------------------------------------
+################################################################
+#
+# Determine which chromosomes are going to be displayed. Several parameters
+# are used together to determine the list and order of displayed chromosomes.
+#
+# - chromosomes
+# - chromosomes_breaks
+# - chromosomes_display_default
+# - chromosomes_order_by_karyotype
+#
+# If chromosomes_display_default is set to 'yes', then any chromosomes that
+# appear in the karyotype file that DO NOT APPEAR in the 'chromosomes' parameter
+# are appended to the 'chromosomes' parameter. The order in which they
+# are appended depends on the value of 'chromosomes_order_by_karyotype'.
+# 
+# If you want to display only those chromosomes that are mentioned in the 
+# 'chromosomes' parameter, then set chromosomes_display_default=no.
+#
+# Both 'chromosomes' and 'chromosomes_breaks' define a list of chromosome regions
+# to show, delimited by ;
+#
+# name{[tag]}{:runlist}
+#
+# e.g.   hs1
+#        hs1[a]
+#        hs1:0-100
+#        hs1[a]:0-100
+#        hs1[a]:0-100,150-200
+#        hs1;hs2[a];hs3:0-100
+#
+# The functional role of 'chromosomes' and 'chromosomes_breaks' is the same. The latter
+# gives an opportunity to syntactically separate definitions of regions which are not shown.
+# 
 sub parse_chromosomes {
-  #
-  # if no chromosomes are specified in 'chromosomes' parameter,
-  # all chromosomes in the KARYOTYPE will be used
-  #
-  # individual chromosome string, delimited by ";",  may be of the format
-  #  NAME:RUNLIST
-  #  -NAME:RUNLIST
-  #  NAME
-  #
-  # with optional tag in [ ] following the NAME, e.g. NAME[TAG]
-  #
-  # e.g. hs1:5-25;hs2[b];hs3[c]:100-120
-  #
+
   my @chrs;
   if ( $CONF{chromosomes_display_default} ) {
     #
-    # the default order for chromosomes is string-then-number if
+    # The default order for chromosomes is string-then-number if
     # chromosomes contain a number, and if not then asciibetic
     # I used to have this based on the order in the KARYOTYPE (use
-    # {CHR}{chr}{display_order} field) but decided to change it
+    # {CHR}{chr}{display_order} field) but decided to change it.
     #
     my @chrs_tmp;
     if ( $CONF{chromosomes_order_by_karyotype} ) {
@@ -7161,14 +7188,19 @@ sub parse_chromosomes {
             } grep( $KARYOTYPE->{$_}{chr}, keys %$KARYOTYPE );
     }
 
+    # Remove from the default list any chromosomes mentioned in the chromosomes field.
     if ( $CONF{chromosomes} ) {
       @chrs_tmp = grep { $CONF{chromosomes} !~ /\b$_\b/ } @chrs_tmp;
     }
 
+    # Reconstruct the 'chromosomes' parameter from the 'chromosomes' parameter and
+    # the default list.
     if (@chrs_tmp) {
-      $CONF{chromosomes} = join( $SEMICOLON, 
-				 join( $SEMICOLON, @chrs_tmp ), $CONF{chromosomes} 
-			       );
+      if($CONF{chromosomes} ) {
+	$CONF{chromosomes} = join( $SEMICOLON, $CONF{chromosomes}, join( $SEMICOLON, @chrs_tmp ) );
+      } else {
+	$CONF{chromosomes} = join( $SEMICOLON, @chrs_tmp );
+      }
     }
   }
 
@@ -7180,23 +7212,18 @@ sub parse_chromosomes {
     # $accept identifies whether the regions indicate inclusions or exclusions
     # $accept=1 this region is to be included
     # $accept=0 this region is to be included (region prefixed by -)
-    my $accept = 1;
-    if ( $chr =~ s/^-// ) {
-      $accept = 0;
-    }
+    my $accept = $chr !~ s/^-//;
+    # each chromosome region may have a tag, delimited by [ and ] (e.g. chr[tag]:runlist)
+    # hs1[a];hs2[b]:0-100;...
     my $tag;
     ( $chr, $tag ) = $chr =~ /([^\[\]]+)\[?([^\]]*)\]?$/;
     if ( ! defined $KARYOTYPE->{$chr}{chr} ) {
-      printwarning(
-		   "skipping entry chromosome entry $chrstring - ",
-		   "the chromosome $chr is not defined in your karyotype"
-		  );
-      next;
-    }
+      confess "fatal error - entry in 'chromosomes' parameter [$chrstring] mentions chromosome [$chr] which is not defined the karyotype file.";
+    };
 
     # all numbers in runlist are automatically multiplied by
     # chromosomes_units value - this saves you from having to type
-    # a lot of zeroes
+    # a lot of zeroes in the runlists
 
     if ( $CONF{chromosomes_units} ) {
       $runlist =~ s/([\.\d]+)/$1*$CONF{chromosomes_units}/eg;
@@ -7206,12 +7233,14 @@ sub parse_chromosomes {
 
     my $set = $runlist ? Set::IntSpan->new($runlist) : $KARYOTYPE->{$chr}{chr}{set};
 
+    ################################################################
+    # uncertain - what was I trying to do here?
     $set->remove($set->max) if $runlist;
-
     if ( ! $accept ) {
       $set->remove( $set->min ) if $set->min;
       $set->remove( $set->max );
     }
+    ################################################################
 
     if ($accept) {
       push @chrs,
@@ -7234,11 +7263,9 @@ sub parse_chromosomes {
   }
 
   if ( ! grep( $_->{accept}, @chrs ) ) {
-    confess "no chromosomes to draw - either define some in ",
-      "'chromosomes' parameter or set chromosomes_display_default to yes";
+    confess "no chromosomes to draw - either define some in 'chromosomes' parameter or set chromosomes_display_default=yes";
   }
 
-  printdumper($KARYOTYPE->{hs1}{chr});
   return @chrs;
 }
 
@@ -8308,12 +8335,11 @@ sub getrdistance {
   return $d;
 }
 
-# -------------------------------------------------------------------
+# Get the angle for a given sequence position within the genome,
+# with appropriate padding built in
+#
+# return in degrees
 sub getanglepos {
-  # Get the angle for a given sequence position within the genome,
-  # with appropriate padding built in
-  #
-  # return in degrees
   my ( $pos, $chr ) = @_;
   my $angle;
   if ( 
@@ -8328,13 +8354,10 @@ sub getanglepos {
 
   if ( $CONF{image}{angle_offset} ) {
     $angle += $CONF{image}{angle_offset};
-
     # bugfix v0.40 - take care of any multiple of 360
     $angle -= 360 * int( $angle / 360 ) if $angle > 360;
   }
-
   printdebug( "getanglepos", $pos, $chr, $angle );
-
   return $angle;
 }
 
@@ -8471,20 +8494,25 @@ sub textoffset {
   # - delta_angle
   # - delta_radius
 
-  my ( $angle, $radius, $label_width, $label_height, $height_offset ) = @_;
+  my ( $angle, $radius, $label_width, $label_height, $height_offset, $is_parallel ) = @_;
 
-  my $angle_offset =
-    $RAD2DEG * ( ( $label_height / 2 + $height_offset ) / $radius );
-
+  my $angle_offset  = $RAD2DEG * ( ( $label_height / 2 + $height_offset ) / $radius );
   my $radius_offset = $label_width - 1;
-
   $angle = anglemod($angle);
-
+  if($is_parallel) {
+    if ($angle < 0 ) {
+      $radius_offset = 0;
+    } elsif ($angle > 0 && $angle < 180) {
+      $radius_offset = $label_height;
+    } else {
+      $radius_offset = 0;
+    }
+  }
   # bug fix v0.40, >= <= changed to < >
   if ( $angle > 90 && $angle < 270 ) {
     return ( -$angle_offset, $radius_offset );
   } else {
-    return ( $angle_offset, 0 );
+    return ( $angle_offset, !$is_parallel ? 0 : $radius_offset );
   }
 }
 
@@ -8511,12 +8539,15 @@ sub anglemod {
   return $angle;
 }
 
-# -------------------------------------------------------------------
+################################################################
+# Given an angle, determine the rotation of text that will make
+# the text perpendicular to the angle.
+#
+# If $rotate=1, then the text will be parallel to the angle.
+#
 sub textangle {
-  my $angle = shift;
-
+  my ($angle,$is_parallel) = @_;
   $angle = anglemod($angle);
-
   my $textangle;
   if ( $angle <= 90 ) {
     $textangle = 360 - $angle;
@@ -8527,16 +8558,26 @@ sub textangle {
   } else {
     $textangle = 360 - $angle;
   }
-
+  if($is_parallel) {
+    # v0.52 if the ideogram label is to be parallel to the ideogram by setting
+    # label_parallel = yes
+    # then the text direction is adjusted    
+    my $oldtextangle = $textangle;
+    if($oldtextangle <= 90 && $oldtextangle >= 0) {
+      $textangle -= 90;
+    } elsif ($oldtextangle >= 270) {
+      $textangle += 90;
+    }
+  }
   return $textangle;
 }
 
 # -------------------------------------------------------------------
 sub textanglesvg {
-  my $angle = shift;
+  my ($angle,$is_parallel) = @_;
 
   #$angle = $angle % 360;
-  my $svgangle = 360 - textangle($angle);
+  my $svgangle = 360 - textangle($angle,$is_parallel);
 
   #$svgangle += 0.01 if $svgangle == 90;
   return $svgangle;
@@ -8702,8 +8743,8 @@ sub read_karyotype {
       # band entries have the 'chr' key point to the name of parent chromosome
       $data->{chr} = $parent;
       if ( ! $karyotype->{$parent}{chr} ) {
-	# Used to quit here, but now this function is in validate_karyotype. The result is that 
-	# you can define a band for a chromosome before the chromosome itself.
+	# Used to quit here, but now this function is in validate_karyotype. This change was done so that 
+	# you may define a band for a chromosome before the chromosome itself.
 	#confess "fatal error - you've defined bands for chromosome $parent but this chromosome itself has not been first defined.";
       }
       push @{ $karyotype->{ $parent }{band} }, $data;
@@ -9013,6 +9054,8 @@ sub printdebug {
 
 # -------------------------------------------------------------------
 sub printdumper {
+  $Data::Dumper::Sortkeys=1;
+  $Data::Dumper::Indent=1;
   printinfo( Dumper(@_) );
 }
 
