@@ -244,3 +244,8 @@ Fixed scale zooming for display at base resolution.
 
 Expanded and streamlined tick mark functionality.
 
+24 Nov 2009 v0.52
+
+A bug release that fixes issues with ordering and axis breaks.
+
+Ideogram labels can now be rendered with their baseline parallel to the circle's circumference by using label_parallel=yes in the <ideogram> block.

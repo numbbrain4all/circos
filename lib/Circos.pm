@@ -835,9 +835,9 @@ or a hashref of the configuration options.
       # v0.52 fixes problem with axis break display when a single
       # ideogram with a break was shown. The problem is due to the
       # circular nature of the next/prev list.
-      if($ideogram->{display_idx} < $ideogram->{next}{display_idx}) {
+      #if($ideogram->{display_idx} < $ideogram->{next}{display_idx}) {
 	draw_axis_break($ideogram);
-      }
+      #}
     }
   }
 
@@ -4975,8 +4975,9 @@ sub reform_chrorder_groups {
 
       if ( $group->{reform} ) {
 	my @tags = map { $_->{tag} } @{ $group->{tags} };
-	confess "chromosomes_order string cannot be processed : group ",
-	  join( $COMMA, @tags ), " cannot be placed in the display";
+	confess "fatal error - chromosomes_order string cannot be processed because group ",
+	  join( $COMMA, @tags ), 
+	    " cannot be placed in the display. This may be due to more tags in the chromosomes_order field than ideograms.";
       }
     }
   } while ($reform_display_idx);
@@ -5401,17 +5402,14 @@ sub draw_axis_break {
 			      );
 
   if ( $style_id == 1 ) {
-
     # slice connecting the IDEOGRAMS
-    if (   $ideogram->{break}{start}
-	   && $ideogram->{prev}{chr} ne $ideogram->{chr} 
-       ) {
+    if ( $ideogram->{break}{start} && $ideogram->{prev}{chr} ne $ideogram->{chr}) {
       draw_break(
 		 {
 		  chr      => $ideogram->{chr},
 		  ideogram => $ideogram,
-		  start_offset =>
-		  ideogram_spacing( $ideogram, $ideogram->{prev} ) / 2,
+		  #start_offset => ideogram_spacing( $ideogram, $ideogram->{prev} ) / 2,
+		  start_offset => ideogram_spacing_helper( $ideogram->{break}{start}),
 		  start      => $ideogram->{set}->min,
 		  end        => $ideogram->{set}->min,
 		  fillcolor  => $style_data->{fill_color},
@@ -5421,16 +5419,14 @@ sub draw_axis_break {
 		);
     }
 
-    if (   $ideogram->{break}{end}
-	   && $ideogram->{next}{chr} ne $ideogram->{chr} 
-       ) {
+    if ($ideogram->{break}{end} && $ideogram->{next}{chr} ne $ideogram->{chr}) {
       draw_break(
 		 {
 		  chr      => $ideogram->{chr},
 		  ideogram => $ideogram,
 		  start    => $ideogram->{set}->max,
-		  end_offset =>
-		  ideogram_spacing( $ideogram, $ideogram->{next} ) / 2,
+		  #end_offset => ideogram_spacing( $ideogram, $ideogram->{next} ) / 2,
+		  end_offset => ideogram_spacing_helper( $ideogram->{break}{end}),
 		  end        => $ideogram->{set}->max,
 		  fillcolor  => $style_data->{fill_color},
 		  thickness  => $thickness,
@@ -5438,7 +5434,6 @@ sub draw_axis_break {
 		 }
 		);
     }
-
     if ( $ideogram->{chr} eq $ideogram->{next}{chr} ) {
       if ($radius_change) {
 	draw_break(
@@ -5447,22 +5442,21 @@ sub draw_axis_break {
 		    ideogram => $ideogram,
 		    start    => $ideogram->{set}->max,
 		    end      => $ideogram_next->{set}->min,
-		    end_offset =>
-		    -ideogram_spacing( $ideogram, $ideogram_next ) / 2,
+		    #end_offset => -ideogram_spacing( $ideogram, $ideogram_next ) / 2,
+		    end_offset => -ideogram_spacing_helper($ideogram->{break}{end}),
 		    fillcolor  => $style_data->{fill_color},
 		    thickness  => $thickness,
 		    style_data => $style_data
 		   }
 		  );
-
 	draw_break(
 		   {
 		    chr      => $ideogram->{chr},
 		    ideogram => $ideogram_next,
 		    start    => $ideogram->{set}->max,
 		    end      => $ideogram_next->{set}->min,
-		    start_offset =>
-		    -ideogram_spacing( $ideogram, $ideogram_next ) / 2,
+		    #start_offset => -ideogram_spacing( $ideogram, $ideogram_next ) / 2,
+		    start_offset => -ideogram_spacing_helper( $ideogram->{break}{start}),
 		    fillcolor  => $style_data->{fill_color},
 		    thickness  => $thickness,
 		    style_data => $style_data
@@ -5483,11 +5477,8 @@ sub draw_axis_break {
       }
     }
   } elsif ( $style_id == 2 ) {
-
     # two radial break lines
-    if (   $ideogram->{break}{start}
-	   && $ideogram->{prev}{chr} ne $ideogram->{chr}
-       ) {
+    if ($ideogram->{break}{start} && $ideogram->{prev}{chr} ne $ideogram->{chr} ) {
       draw_break(
 		 {
 		  chr        => $ideogram->{chr},
@@ -5503,8 +5494,8 @@ sub draw_axis_break {
 		 {
 		  chr          => $ideogram->{chr},
 		  ideogram     => $ideogram,
-		  start_offset => $ideogram->{break}{start},
-		  end_offset   => -$ideogram->{break}{start},
+		  start_offset => ideogram_spacing_helper($ideogram->{break}{start}),
+		  end_offset   => -ideogram_spacing_helper($ideogram->{break}{start}),
 		  start        => $ideogram->{set}->min,
 		  end          => $ideogram->{set}->min,
 		  thickness    => $thickness,
@@ -5512,10 +5503,7 @@ sub draw_axis_break {
 		 }
 		);
     }
-
-    if (   $ideogram->{break}{end}
-	   && $ideogram->{next}{chr} ne $ideogram->{chr}
-       ) {
+    if ($ideogram->{break}{end} && $ideogram->{next}{chr} ne $ideogram->{chr}) {
       draw_break(
 		 {
 		  chr        => $ideogram->{chr},
@@ -5526,13 +5514,12 @@ sub draw_axis_break {
 		  style_data => $style_data
 		 }
 		);
-
       draw_break(
 		 {
 		  chr          => $ideogram->{chr},
 		  ideogram     => $ideogram,
-		  start_offset => -$ideogram->{break}{end},
-		  end_offset   => $ideogram->{break}{end},
+		  start_offset => -ideogram_spacing_helper($ideogram->{break}{end}),
+		  end_offset   => ideogram_spacing_helper($ideogram->{break}{end}),
 		  start        => $ideogram->{set}->max,
 		  end          => $ideogram->{set}->max,
 		  thickness    => $thickness,
@@ -5540,7 +5527,6 @@ sub draw_axis_break {
 		 }
 		);
     }
-
     if ( $ideogram->{next}{chr} eq $ideogram->{chr} ) {
       draw_break(
 		 {
@@ -5552,7 +5538,6 @@ sub draw_axis_break {
 		  style_data => $style_data
 		 }
 		);
-
       draw_break(
 		 {
 		  chr        => $ideogram->{next}{chr},
@@ -6669,7 +6654,6 @@ sub ideogram_spacing_helper {
   } elsif ( unit_fetch( $value, "ideogram/spacing/pairwise" ) eq "r" ) {
     $spacing = unit_strip($value) * $DIMS->{ideogram}{spacing}{default};
   }
-
   return $spacing;
 }
 
@@ -6728,16 +6712,14 @@ sub ideogram_spacing {
   }
 
   if ( $id1->{break}{end} && $chr1 ne $chr2 ) {
-    my $value = $CONF{ideogram}{spacing}{break}
-      || $CONF{ideogram}{spacing}{default};
+    my $value = $CONF{ideogram}{spacing}{break} || $CONF{ideogram}{spacing}{default};
     $spacing += ideogram_spacing_helper($value);
     $id1->{break}{end} = $value;
     $DIMS->{ideogram}{break}{ $id1->{chr} }{end} = $value;
   }
 
   if ( $id2->{break}{start} && $chr1 ne $chr2 ) {
-    my $value = $CONF{ideogram}{spacing}{break}
-      || $CONF{ideogram}{spacing}{default};
+    my $value = $CONF{ideogram}{spacing}{break} || $CONF{ideogram}{spacing}{default};
     $spacing += ideogram_spacing_helper($value);
     $id2->{break}{start} = $value;
     $DIMS->{ideogram}{break}{ $id2->{chr} }{start} = $value;
@@ -7203,65 +7185,69 @@ sub parse_chromosomes {
       }
     }
   }
-
-  for my $chrstring (split( /[; ]+/, $CONF{chromosomes} ),
-		     split( /[; ]+/, $CONF{chromosomes_breaks} ) ) {
-    my ($chr,$runlist) = split($COLON,$chrstring);
-    $chr       = $EMPTY_STR if !defined $chr;
-    $runlist   = $EMPTY_STR if !defined $runlist;
-    # $accept identifies whether the regions indicate inclusions or exclusions
-    # $accept=1 this region is to be included
-    # $accept=0 this region is to be included (region prefixed by -)
-    my $accept = $chr !~ s/^-//;
-    # each chromosome region may have a tag, delimited by [ and ] (e.g. chr[tag]:runlist)
-    # hs1[a];hs2[b]:0-100;...
-    my $tag;
-    ( $chr, $tag ) = $chr =~ /([^\[\]]+)\[?([^\]]*)\]?$/;
-    if ( ! defined $KARYOTYPE->{$chr}{chr} ) {
-      confess "fatal error - entry in 'chromosomes' parameter [$chrstring] mentions chromosome [$chr] which is not defined the karyotype file.";
-    };
-
-    # all numbers in runlist are automatically multiplied by
-    # chromosomes_units value - this saves you from having to type
-    # a lot of zeroes in the runlists
-
-    if ( $CONF{chromosomes_units} ) {
-      $runlist =~ s/([\.\d]+)/$1*$CONF{chromosomes_units}/eg;
-    }
-
-    printdebug( "parsed chromosome range", $chr, $runlist || $DASH );
-
-    my $set = $runlist ? Set::IntSpan->new($runlist) : $KARYOTYPE->{$chr}{chr}{set};
-
-    ################################################################
-    # uncertain - what was I trying to do here?
-    $set->remove($set->max) if $runlist;
-    if ( ! $accept ) {
-      $set->remove( $set->min ) if $set->min;
-      $set->remove( $set->max );
-    }
-    ################################################################
-
-    if ($accept) {
-      push @chrs,
-	{
-	 chr    => $chr,
-	 tag    => $tag || $chr,
-	 idx    => int(@chrs),
-	 accept => $accept,
-	 set    => $set
-	};
-    }
-
-    if ($accept) {
-      $KARYOTYPE->{$chr}{chr}{display_region}{accept} ||= Set::IntSpan->new();
-      $KARYOTYPE->{$chr}{chr}{display_region}{accept} = $KARYOTYPE->{$chr}{chr}{display_region}{accept}->union($set);
-    } else {
-      $KARYOTYPE->{$chr}{chr}{display_region}{reject} ||= Set::IntSpan->new();
-      $KARYOTYPE->{$chr}{chr}{display_region}{reject} = $KARYOTYPE->{$chr}{chr}{display_region}{reject}->union($set);
+  
+  for my $pair ([$CONF{chromosomes},1],
+		[$CONF{chromosomes_breaks},0]) {
+    my ($string,$accept_default) = @$pair;
+    for my $chrstring (split(/[; ]+/,$string)) {
+      my ($chr,$runlist) = split($COLON,$chrstring);
+      $chr       = $EMPTY_STR if !defined $chr;
+      $runlist   = $EMPTY_STR if !defined $runlist;
+      # $accept identifies whether the regions indicate inclusions or exclusions
+      # $accept=1 this region is to be included
+      # $accept=0 this region is to be included (region prefixed by -)
+      my $accept = $accept_default;
+      $accept = 0 if $chr =~ s/^-//;
+      # each chromosome region may have a tag, delimited by [ and ] (e.g. chr[tag]:runlist)
+      # hs1[a];hs2[b]:0-100;...
+      my $tag;
+      ( $chr, $tag ) = $chr =~ /([^\[\]]+)\[?([^\]]*)\]?$/;
+      if ( ! defined $KARYOTYPE->{$chr}{chr} ) {
+	confess "fatal error - entry in 'chromosomes' parameter [$chrstring] mentions chromosome [$chr] which is not defined the karyotype file.";
+      };
+      
+      # all numbers in runlist are automatically multiplied by
+      # chromosomes_units value - this saves you from having to type
+      # a lot of zeroes in the runlists
+      
+      if ( $CONF{chromosomes_units} ) {
+	$runlist =~ s/([\.\d]+)/$1*$CONF{chromosomes_units}/eg;
+      }
+      
+      printdebug( "parsed chromosome range", $chr, $runlist || $DASH );
+      
+      my $set = $runlist ? Set::IntSpan->new($runlist) : $KARYOTYPE->{$chr}{chr}{set};
+      
+      ################################################################
+      # uncertain - what was I trying to do here?
+      $set->remove($set->max) if $runlist;
+      if ( ! $accept ) {
+	$set->remove( $set->min ) if $set->min;
+	$set->remove( $set->max );
+      }
+      ################################################################
+      
+      if ($accept) {
+	push @chrs,
+	  {
+	   chr    => $chr,
+	   tag    => $tag || $chr,
+	   idx    => int(@chrs),
+	   accept => $accept,
+	   set    => $set
+	  };
+      }
+      
+      if ($accept) {
+	$KARYOTYPE->{$chr}{chr}{display_region}{accept} ||= Set::IntSpan->new();
+	$KARYOTYPE->{$chr}{chr}{display_region}{accept} = $KARYOTYPE->{$chr}{chr}{display_region}{accept}->union($set);
+      } else {
+	$KARYOTYPE->{$chr}{chr}{display_region}{reject} ||= Set::IntSpan->new();
+	$KARYOTYPE->{$chr}{chr}{display_region}{reject} = $KARYOTYPE->{$chr}{chr}{display_region}{reject}->union($set);
+      }
     }
   }
-
+  
   if ( ! grep( $_->{accept}, @chrs ) ) {
     confess "no chromosomes to draw - either define some in 'chromosomes' parameter or set chromosomes_display_default=yes";
   }
