@@ -829,15 +829,13 @@ or a hashref of the configuration options.
   }
 
   for my $ideogram (@IDEOGRAMS) {
-    if ( $ideogram->{chr} eq $ideogram->{next}{chr}
-	 || $ideogram->{break}{start}
-	 || $ideogram->{break}{end} ) {
+    if ( $ideogram->{chr} eq $ideogram->{next}{chr} || $ideogram->{break}{start} || $ideogram->{break}{end} ) {
       # v0.52 fixes problem with axis break display when a single
       # ideogram with a break was shown. The problem is due to the
       # circular nature of the next/prev list.
-      #if($ideogram->{display_idx} < $ideogram->{next}{display_idx}) {
+      if($ideogram->{display_idx} < $ideogram->{next}{display_idx}) {
 	draw_axis_break($ideogram);
-      #}
+      }
     }
   }
 
@@ -5974,7 +5972,7 @@ sub draw_ticks {
 	  $mb_pos_end   = nearest( $tickdata->{spacing}, $ideogram->{set}->max );
 	}
 
-	printinfo("mbpos","start",$mb_pos_start,"end",$mb_pos_end);
+	# printinfo("mbpos","start",$mb_pos_start,"end",$mb_pos_end);
 
 	#
 	# compile a list of position for this tick - this is an important step because we will
