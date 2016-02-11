@@ -1,0 +1,3 @@
+Circos creates data visualization with a circular layout. Currently, its primary use is to visualize genomic data that relate positions (alignments, conservation, synteny, rearrangements), but it is sufficiently flexible to be used in any application where a linear layout of scale is inadequate.
+
+[![](http://mkweb.bcgsc.ca/circos/poster/hinxton2008/circos-visualguide-tiny.png)](http://mkweb.bcgsc.ca/circos)
